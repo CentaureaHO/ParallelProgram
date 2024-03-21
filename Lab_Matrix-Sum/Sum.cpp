@@ -62,9 +62,11 @@ ns UnrollSum(const vector<int>& Nums, long long& Sum)
 
 int main()
 {
-    int Size = 1000000000;
+    int Size = 1000000000, Repeat = 10;
     cout << "Enter the test size: ";
     cin >> Size;
+    cout << "Enter the number of repetitions: ";
+    cin >> Repeat;
     vector<int> Nums(Size);
     int Seed = 17171017;
     int Tmp1 = 0, Tmp2 = 0, Shift = 0;
@@ -80,10 +82,59 @@ int main()
     }
     long long Sum = 0;
     cout << "Size: " << Size << "\n";
-    ns SeqTime = SequentialSum(Nums, Sum);
-    cout << "Sequential Sum: " << Sum << " Time: " << SeqTime.count() << "ns\n";
-    ns VecTime = VectorizedSum(Nums, Sum);
-    cout << "Vectorized Sum: " << Sum << " Time: " << VecTime.count() << "ns\n";
-    ns UnrollTime = UnrollSum(Nums, Sum);
-    cout << "Unroll Sum: " << Sum << " Time: " << UnrollTime.count() << "ns\n";
+    ns CurTime, AvgTime, MinTime, MaxTime;
+    
+    AvgTime = MinTime = MaxTime = ns(0);
+    for (int i = 0; i < Repeat; i++) 
+    {
+        CurTime = SequentialSum(Nums, Sum);
+        if (i == 0) MinTime = MaxTime = CurTime;
+        else 
+        {
+            MinTime = min(MinTime, CurTime);
+            MaxTime = max(MaxTime, CurTime);
+        }
+        AvgTime += CurTime;
+    }
+    AvgTime /= Repeat;
+    cout << "SequentialSum:\n";
+    cout << "\tAverage time: " << AvgTime.count() << " ns\n";
+    cout << "\tMinimum time: " << MinTime.count() << " ns\n";
+    cout << "\tMaximum time: " << MaxTime.count() << " ns\n";
+
+    AvgTime = MinTime = MaxTime = ns(0);
+    for (int i = 0; i < Repeat; i++) 
+    {
+        CurTime = VectorizedSum(Nums, Sum);
+        if (i == 0) MinTime = MaxTime = CurTime;
+        else 
+        {
+            MinTime = min(MinTime, CurTime);
+            MaxTime = max(MaxTime, CurTime);
+        }
+        AvgTime += CurTime;
+    }
+    AvgTime /= Repeat;
+    cout << "\nVectorizedSum:\n";
+    cout << "\tAverage time: " << AvgTime.count() << " ns\n";
+    cout << "\tMinimum time: " << MinTime.count() << " ns\n";
+    cout << "\tMaximum time: " << MaxTime.count() << " ns\n";
+
+    AvgTime = MinTime = MaxTime = ns(0);
+    for (int i = 0; i < Repeat; i++) 
+    {
+        CurTime = UnrollSum(Nums, Sum);
+        if (i == 0) MinTime = MaxTime = CurTime;
+        else 
+        {
+            MinTime = min(MinTime, CurTime);
+            MaxTime = max(MaxTime, CurTime);
+        }
+        AvgTime += CurTime;
+    }
+    AvgTime /= Repeat;
+    cout << "\nUnrollSum:\n";
+    cout << "\tAverage time: " << AvgTime.count() << " ns\n";
+    cout << "\tMinimum time: " << MinTime.count() << " ns\n";
+    cout << "\tMaximum time: " << MaxTime.count() << " ns\n";
 }

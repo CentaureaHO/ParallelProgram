@@ -76,9 +76,11 @@ int FakeRand(int& Seed)
 
 int main()
 {
-    int Size = 30000;
+    int Size = 30000, Repeat = 10;
     cout << "Enter the test size: ";
     cin >> Size;
+    cout << "Enter the number of repetitions: ";
+    cin >> Repeat;
     vector<int> Vec(Size);
     vector<long long> Result(Size);
     vector<vector<int>> Matrix(Size, vector<int>(Size));
@@ -88,14 +90,59 @@ int main()
         Vec[i] = FakeRand(Seed) % 1000;
         for (int j = 0; j < Size; j++) Matrix[i][j] = FakeRand(Seed) % 1000;
     }
-    cout << "Size: " << Size << endl;
-    ns TriTime = Trivial(Matrix, Vec, Result);
-    cout << "Trivial Time: " << TriTime.count() << "ns\n";
-    cout << "Result[0]: " << Result[0] << endl;
-    ns OptTime = Optimized(Matrix, Vec, Result);
-    cout << "Optimized Time: " << OptTime.count() << "ns\n";
-    cout << "Result[0]: " << Result[0] << endl;
-    ns UnrollTime = Unroll(Matrix, Vec, Result);
-    cout << "Unroll Time: " << UnrollTime.count() << "ns\n";
-    cout << "Result[0]: " << Result[0] << endl;
+    ns CurTime, AvgTime, MinTime, MaxTime;
+
+    AvgTime = MinTime = MaxTime = ns(0);
+    for (int i = 0; i < Repeat; i++) 
+    {
+        CurTime = Trivial(Matrix, Vec, Result);
+        if (i == 0) MinTime = MaxTime = CurTime;
+        else 
+        {
+            if (CurTime < MinTime) MinTime = CurTime;
+            if (CurTime > MaxTime) MaxTime = CurTime;
+        }
+        AvgTime += CurTime;
+    }
+    AvgTime /= Repeat;
+    cout << "Trivial:\n";
+    cout <<"\tAverage time: " << AvgTime.count() << " ns\n";
+    cout <<"\tMinimum time: " << MinTime.count() << " ns\n";
+    cout <<"\tMaximum time: " << MaxTime.count() << " ns\n";
+
+    AvgTime = MinTime = MaxTime = ns(0);
+    for (int i = 0; i < Repeat; i++) 
+    {
+        CurTime = Optimized(Matrix, Vec, Result);
+        if (i == 0) MinTime = MaxTime = CurTime;
+        else 
+        {
+            if (CurTime < MinTime) MinTime = CurTime;
+            if (CurTime > MaxTime) MaxTime = CurTime;
+        }
+        AvgTime += CurTime;
+    }
+    AvgTime /= Repeat;
+    cout << "\nOptimized:\n";
+    cout <<"\tAverage time: " << AvgTime.count() << " ns\n";
+    cout <<"\tMinimum time: " << MinTime.count() << " ns\n";
+    cout <<"\tMaximum time: " << MaxTime.count() << " ns\n";
+
+    AvgTime = MinTime = MaxTime = ns(0);
+    for (int i = 0; i < Repeat; i++) 
+    {
+        CurTime = Unroll(Matrix, Vec, Result);
+        if (i == 0) MinTime = MaxTime = CurTime;
+        else 
+        {
+            if (CurTime < MinTime) MinTime = CurTime;
+            if (CurTime > MaxTime) MaxTime = CurTime;
+        }
+        AvgTime += CurTime;
+    }
+    AvgTime /= Repeat;
+    cout << "\nUnroll:\n";
+    cout <<"\tAverage time: " << AvgTime.count() << " ns\n";
+    cout <<"\tMinimum time: " << MinTime.count() << " ns\n";
+    cout <<"\tMaximum time: " << MaxTime.count() << " ns\n";
 }
