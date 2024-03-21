@@ -33,7 +33,7 @@ void ParallelSum(const vector<int>& Nums, int Left, int Right, long long& Sum, i
     Sum += SumLeft + SumRight;
 }
 
-ns VectorizedSum(const vector<int>& Nums, long long& Sum) 
+ns ConcurrentSum(const vector<int>& Nums, long long& Sum) 
 {
     auto Start = hrClk::now();
     Sum = 0;
@@ -105,7 +105,7 @@ int main()
     AvgTime = MinTime = MaxTime = ns(0);
     for (int i = 0; i < Repeat; i++) 
     {
-        CurTime = VectorizedSum(Nums, Sum);
+        CurTime = ConcurrentSum(Nums, Sum);
         if (i == 0) MinTime = MaxTime = CurTime;
         else 
         {
@@ -115,7 +115,7 @@ int main()
         AvgTime += CurTime;
     }
     AvgTime /= Repeat;
-    cout << "\nVectorizedSum:\n";
+    cout << "\nConcurrentSum:\n";
     cout << "\tAverage time: " << AvgTime.count() << " ns\n";
     cout << "\tMinimum time: " << MinTime.count() << " ns\n";
     cout << "\tMaximum time: " << MaxTime.count() << " ns\n";
