@@ -86,13 +86,13 @@ void SSE::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width,
     for (int t = 0; t < ThreadsNum; ++t)
     {
         Threads[t] = std::thread([&, t]() {
-            int ColPerThread = Width / ThreadsNum;
-            int Start        = t * ColPerThread;
-            int End          = (t == ThreadsNum - 1) ? Width : Start + ColPerThread;
-            for (int x = Start; x < End; x++)
+            int RowPerThread = Height / ThreadsNum;
+            int Start        = t * RowPerThread;
+            int End          = (t == ThreadsNum - 1) ? Height : Start + RowPerThread;
+            for (int y = Start; y < End; y++)
             {
-                int y = 0;
-                for (; y <= Height - 4; y += 4)
+                int x = 0;
+                for (; x <= Width - 4; x += 4)
                 {
                     __m128 PixelVal0 = _mm_setzero_ps();
                     __m128 PixelVal1 = _mm_setzero_ps();
@@ -102,59 +102,51 @@ void SSE::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width,
 
                     for (int i = -KernelRadius; i <= KernelRadius; i++)
                     {
-                        int ny0 = y + i;
-                        if (ny0 >= 0 && ny0 < Height)
+                        int nx0 = x + i;
+                        if (nx0 >= 0 && nx0 < Width)
                         {
-                            int    ImgIdx0   = ny0 * Width + x;
-                            __m128 ImgPixel0 = _mm_set1_ps(Tmp[ImgIdx0]);
+                            int    ImgIdx0   = y * Width + nx0;
+                            __m128 ImgPixel0 = _mm_set1_ps(static_cast<float>(Tmp[ImgIdx0]));
                             __m128 KernelVal = _mm_set1_ps(GaussianKernel_1D[KernelRadius + i]);
                             PixelVal0        = _mm_add_ps(PixelVal0, _mm_mul_ps(ImgPixel0, KernelVal));
-                            if (ny0 + 1 < Height)
-                                PixelVal1 =
-                                    _mm_add_ps(PixelVal1, _mm_mul_ps(_mm_set1_ps(Tmp[ImgIdx0 + Width]), KernelVal));
-                            if (ny0 + 2 < Height)
-                                PixelVal2 =
-                                    _mm_add_ps(PixelVal2, _mm_mul_ps(_mm_set1_ps(Tmp[ImgIdx0 + 2 * Width]), KernelVal));
-                            if (ny0 + 3 < Height)
-                                PixelVal3 =
-                                    _mm_add_ps(PixelVal3, _mm_mul_ps(_mm_set1_ps(Tmp[ImgIdx0 + 3 * Width]), KernelVal));
+                            if (nx0 + 1 < Width)
+                                PixelVal1 = _mm_add_ps(PixelVal1,
+                                    _mm_mul_ps(_mm_set1_ps(static_cast<float>(Tmp[ImgIdx0 + 1])), KernelVal));
+                            if (nx0 + 2 < Width)
+                                PixelVal2 = _mm_add_ps(PixelVal2,
+                                    _mm_mul_ps(_mm_set1_ps(static_cast<float>(Tmp[ImgIdx0 + 2])), KernelVal));
+                            if (nx0 + 3 < Width)
+                                PixelVal3 = _mm_add_ps(PixelVal3,
+                                    _mm_mul_ps(_mm_set1_ps(static_cast<float>(Tmp[ImgIdx0 + 3])), KernelVal));
                             KernelSum = _mm_add_ps(KernelSum, KernelVal);
                         }
                     }
 
-                    __m128 InvKernelSum   = _mm_div_ps(_mm_set1_ps(1.0f), KernelSum);
-                    Output[y * Width + x] = (uint8_t)std::min(
-                        std::max((int)(_mm_cvtss_f32(_mm_mul_ps(PixelVal0, InvKernelSum)) + 0.5f), 0), 255);
-                    Output[(y + 1) * Width + x] = (uint8_t)std::min(
-                        std::max((int)(_mm_cvtss_f32(_mm_mul_ps(PixelVal1, InvKernelSum)) + 0.5f), 0), 255);
-                    Output[(y + 2) * Width + x] = (uint8_t)std::min(
-                        std::max((int)(_mm_cvtss_f32(_mm_mul_ps(PixelVal2, InvKernelSum)) + 0.5f), 0), 255);
-                    Output[(y + 3) * Width + x] = (uint8_t)std::min(
-                        std::max((int)(_mm_cvtss_f32(_mm_mul_ps(PixelVal3, InvKernelSum)) + 0.5f), 0), 255);
+                    __m128 InvKernelSum    = _mm_div_ps(_mm_set1_ps(1.0f), KernelSum);
+                    Output[y * Width + x]     = _mm_cvtss_f32(_mm_mul_ps(PixelVal0, InvKernelSum));
+                    Output[y * Width + x + 1] = _mm_cvtss_f32(_mm_mul_ps(PixelVal1, InvKernelSum));
+                    Output[y * Width + x + 2] = _mm_cvtss_f32(_mm_mul_ps(PixelVal2, InvKernelSum));
+                    Output[y * Width + x + 3] = _mm_cvtss_f32(_mm_mul_ps(PixelVal3, InvKernelSum));
                 }
 
-                for (; y < Height; y++)
+                for (; x < Width; x++)
                 {
                     __m128 PixelVal  = _mm_setzero_ps();
                     __m128 KernelSum = _mm_setzero_ps();
                     for (int i = -KernelRadius; i <= KernelRadius; i++)
                     {
-                        int ny = y + i;
-                        if (ny >= 0 && ny < Height)
+                        int nx = x + i;
+                        if (nx >= 0 && nx < Width)
                         {
-                            int    ImgIdx    = ny * Width + x;
-                            __m128 ImgPixel  = _mm_set1_ps(Tmp[ImgIdx]);
+                            int    ImgIdx    = y * Width + nx;
+                            __m128 ImgPixel  = _mm_set1_ps(static_cast<float>(Tmp[ImgIdx]));
                             __m128 KernelVal = _mm_set1_ps(GaussianKernel_1D[KernelRadius + i]);
                             PixelVal         = _mm_add_ps(PixelVal, _mm_mul_ps(ImgPixel, KernelVal));
                             KernelSum        = _mm_add_ps(KernelSum, KernelVal);
                         }
                     }
-                    PixelVal              = _mm_div_ps(PixelVal, KernelSum);
-                    Output[y * Width + x] = (uint8_t)std::min(
-                        std::max(
-                            (int)(_mm_cvtss_f32(_mm_shuffle_ps(PixelVal, PixelVal, _MM_SHUFFLE(0, 0, 0, 0))) + 0.5f),
-                            0),
-                        255);
+                    PixelVal           = _mm_div_ps(PixelVal, KernelSum);
+                    Output[y * Width + x] = _mm_cvtss_f32(_mm_shuffle_ps(PixelVal, PixelVal, _MM_SHUFFLE(0, 0, 0, 0)));
                 }
             }
         });
