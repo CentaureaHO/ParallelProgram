@@ -2,6 +2,7 @@
 #include <thread>
 #include <vector>
 #include <xmmintrin.h>
+#include <bits/stdc++.h>
 #include "GaussDef.h"
 #include "SIMD.h"
 
@@ -122,7 +123,7 @@ void SSE::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width,
                         }
                     }
 
-                    __m128 InvKernelSum    = _mm_div_ps(_mm_set1_ps(1.0f), KernelSum);
+                    __m128 InvKernelSum       = _mm_div_ps(_mm_set1_ps(1.0f), KernelSum);
                     Output[y * Width + x]     = _mm_cvtss_f32(_mm_mul_ps(PixelVal0, InvKernelSum));
                     Output[y * Width + x + 1] = _mm_cvtss_f32(_mm_mul_ps(PixelVal1, InvKernelSum));
                     Output[y * Width + x + 2] = _mm_cvtss_f32(_mm_mul_ps(PixelVal2, InvKernelSum));
@@ -145,7 +146,7 @@ void SSE::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width,
                             KernelSum        = _mm_add_ps(KernelSum, KernelVal);
                         }
                     }
-                    PixelVal           = _mm_div_ps(PixelVal, KernelSum);
+                    PixelVal              = _mm_div_ps(PixelVal, KernelSum);
                     Output[y * Width + x] = _mm_cvtss_f32(_mm_shuffle_ps(PixelVal, PixelVal, _MM_SHUFFLE(0, 0, 0, 0)));
                 }
             }
@@ -179,19 +180,25 @@ void AVX::A256::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int 
                         int nx = x + i;
                         if (nx >= 0 && nx < Width)
                         {
-                            __m256 ImgPixel = _mm256_set1_ps(static_cast<float>(OriImg[y * Width + nx]));
-                            __m256 Kernel   = _mm256_set1_ps(GaussianKernel_1D[KernelRadius + i]);
-                            PixelVal        = _mm256_add_ps(PixelVal, _mm256_mul_ps(ImgPixel, Kernel));
-                            KernelSum       = _mm256_add_ps(KernelSum, Kernel);
+                            int    ImgIdx    = y * Width + nx;
+                            __m256 ImgPixel  = _mm256_set_ps(static_cast<float>(OriImg[ImgIdx + 7]),
+                                static_cast<float>(OriImg[ImgIdx + 6]),
+                                static_cast<float>(OriImg[ImgIdx + 5]),
+                                static_cast<float>(OriImg[ImgIdx + 4]),
+                                static_cast<float>(OriImg[ImgIdx + 3]),
+                                static_cast<float>(OriImg[ImgIdx + 2]),
+                                static_cast<float>(OriImg[ImgIdx + 1]),
+                                static_cast<float>(OriImg[ImgIdx]));
+                            __m256 KernelVal = _mm256_set1_ps(GaussianKernel_1D[KernelRadius + i]);
+                            PixelVal         = _mm256_add_ps(PixelVal, _mm256_mul_ps(ImgPixel, KernelVal));
+                            KernelSum        = _mm256_add_ps(KernelSum, KernelVal);
                         }
                     }
 
-                    PixelVal          = _mm256_div_ps(PixelVal, KernelSum);
-                    __m256i Pixels_u8 = _mm256_cvtps_epi32(
-                        _mm256_min_ps(_mm256_max_ps(PixelVal, _mm256_setzero_ps()), _mm256_set1_ps(255.0f)));
-                    _mm_storeu_si128((__m128i*)&Output[y * Width + x], _mm256_extractf128_si256(Pixels_u8, 0));
-                    _mm_storeu_si128((__m128i*)&Output[y * Width + x + 4], _mm256_extractf128_si256(Pixels_u8, 1));
+                    __m256 InvKernelSum = _mm256_div_ps(_mm256_set1_ps(1.0f), KernelSum);
+                    _mm256_storeu_ps(&Tmp[y * Width + x], _mm256_mul_ps(PixelVal, InvKernelSum));
                 }
+
                 for (; x < Width; x++)
                 {
                     float PixelVal  = 0.0f;
@@ -201,14 +208,14 @@ void AVX::A256::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int 
                         int nx = x + i;
                         if (nx >= 0 && nx < Width)
                         {
-                            float ImgPixel = static_cast<float>(OriImg[y * Width + nx]);
-                            float Kernel   = GaussianKernel_1D[KernelRadius + i];
-                            PixelVal += ImgPixel * Kernel;
-                            KernelSum += Kernel;
+                            int   ImgIdx    = y * Width + nx;
+                            float ImgPixel  = static_cast<float>(OriImg[ImgIdx]);
+                            float KernelVal = GaussianKernel_1D[KernelRadius + i];
+                            PixelVal += ImgPixel * KernelVal;
+                            KernelSum += KernelVal;
                         }
                     }
-                    Output[y * Width + x] =
-                        static_cast<uint8_t>(std::min(std::max(int(PixelVal / KernelSum + 0.5f), 0), 255));
+                    Tmp[y * Width + x] = PixelVal / KernelSum;
                 }
             }
         });
@@ -218,34 +225,35 @@ void AVX::A256::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int 
     for (int t = 0; t < ThreadsNum; ++t)
     {
         Threads[t] = std::thread([&, t]() {
-            int ColPerThread = Width / ThreadsNum;
-            int Start        = t * ColPerThread;
-            int End          = (t == ThreadsNum - 1) ? Width : Start + ColPerThread;
-            for (int x = Start; x < End; x++)
+            int RowPerThread = Height / ThreadsNum;
+            int Start        = t * RowPerThread;
+            int End          = (t == ThreadsNum - 1) ? Height : Start + RowPerThread;
+            for (int y = Start; y < End; y++)
             {
-                int y = 0;
-                for (; y <= Height - 8; y += 8)
+                int x = 0;
+                for (; x <= Width - 8; x += 8)
                 {
                     __m256 PixelVal  = _mm256_setzero_ps();
                     __m256 KernelSum = _mm256_setzero_ps();
+
                     for (int i = -KernelRadius; i <= KernelRadius; i++)
                     {
                         int ny = y + i;
                         if (ny >= 0 && ny < Height)
                         {
-                            __m256 ImgPixel = _mm256_set1_ps(Tmp[ny * Width + x]);
-                            __m256 Kernel   = _mm256_set1_ps(GaussianKernel_1D[KernelRadius + i]);
-                            PixelVal        = _mm256_add_ps(PixelVal, _mm256_mul_ps(ImgPixel, Kernel));
-                            KernelSum       = _mm256_add_ps(KernelSum, Kernel);
+                            int    ImgIdx    = ny * Width + x;
+                            __m256 ImgPixel  = _mm256_loadu_ps(&Tmp[ImgIdx]);
+                            __m256 KernelVal = _mm256_set1_ps(GaussianKernel_1D[KernelRadius + i]);
+                            PixelVal         = _mm256_add_ps(PixelVal, _mm256_mul_ps(ImgPixel, KernelVal));
+                            KernelSum        = _mm256_add_ps(KernelSum, KernelVal);
                         }
                     }
-                    PixelVal          = _mm256_div_ps(PixelVal, KernelSum);
-                    __m256i Pixels_u8 = _mm256_cvtps_epi32(
-                        _mm256_min_ps(_mm256_max_ps(PixelVal, _mm256_setzero_ps()), _mm256_set1_ps(255.0f)));
-                    _mm_storeu_si128((__m128i*)&Output[y * Width + x], _mm256_extractf128_si256(Pixels_u8, 0));
-                    _mm_storeu_si128((__m128i*)&Output[y * Width + x + 4], _mm256_extractf128_si256(Pixels_u8, 1));
+
+                    __m256 InvKernelSum = _mm256_div_ps(_mm256_set1_ps(1.0f), KernelSum);
+                    _mm256_storeu_ps(&Tmp[y * Width + x], _mm256_mul_ps(PixelVal, InvKernelSum));
                 }
-                for (; y < Height; y++)
+
+                for (; x < Width; x++)
                 {
                     float PixelVal  = 0.0f;
                     float KernelSum = 0.0f;
@@ -254,17 +262,19 @@ void AVX::A256::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int 
                         int ny = y + i;
                         if (ny >= 0 && ny < Height)
                         {
-                            float ImgPixel = Tmp[ny * Width + x];
-                            float Kernel   = GaussianKernel_1D[KernelRadius + i];
-                            PixelVal += ImgPixel * Kernel;
-                            KernelSum += Kernel;
+                            int   ImgIdx    = ny * Width + x;
+                            float ImgPixel  = Tmp[ImgIdx];
+                            float KernelVal = GaussianKernel_1D[KernelRadius + i];
+                            PixelVal += ImgPixel * KernelVal;
+                            KernelSum += KernelVal;
                         }
                     }
-                    Output[y * Width + x] =
-                        static_cast<uint8_t>(std::min(std::max(int(PixelVal / KernelSum + 0.5f), 0), 255));
+                    Tmp[y * Width + x] = PixelVal / KernelSum;
                 }
             }
         });
     }
     for (auto& Th : Threads) Th.join();
+
+    for (int i = 0; i < Width * Height; i++) Output[i] = static_cast<uint8_t>(Tmp[i]);
 }

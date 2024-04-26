@@ -22,7 +22,7 @@ int main()
     const int LowThre      = 30;
     const int HighThre     = 90;
 
-    std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = SSE::PerformGaussianBlur;
+    std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = AVX::A256::PerformGaussianBlur;
     std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = Serial::ComputeGradients;
     std::function<void(float*, float*, uint8_t*, int, int)>         ReduNM = Serial::ReduceNonMaximum;
     std::function<void(uint8_t*, float*, int, int, int, int)>       DbThre = Serial::PerformDoubleThresholding;
