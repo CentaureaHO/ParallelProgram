@@ -22,7 +22,7 @@ int main()
     const int LowThre      = 30;
     const int HighThre     = 90;
 
-    std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = AVX::A256::PerformGaussianBlur;
+    std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = AVX::A512::PerformGaussianBlur;
     std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = Serial::ComputeGradients;
     std::function<void(float*, float*, uint8_t*, int, int)>         ReduNM = Serial::ReduceNonMaximum;
     std::function<void(uint8_t*, float*, int, int, int, int)>       DbThre = Serial::PerformDoubleThresholding;
@@ -42,8 +42,10 @@ int main()
             cv::Mat GreyImg, EdgedImg;
             cv::cvtColor(OriImg, GreyImg, cv::COLOR_BGR2GRAY);
 
-            const int Width  = GreyImg.cols;
-            const int Height = GreyImg.rows;
+            const int Width      = GreyImg.cols;
+            const int Height     = GreyImg.rows;
+            uint8_t*  AlignedImg = (uint8_t*)_mm_malloc(Width * Height, 64);
+            std::memcpy(AlignedImg, GreyImg.data, Width * Height);
             EdgedImg.create(Height, Width, CV_8UC1);
 
             std::vector<float>   GradientPixels(Width * Height);
@@ -62,6 +64,7 @@ int main()
 
             ns Duration = std::chrono::duration_cast<ns>(End - Start);
             Cases.push_back(std::make_tuple(Entry.path().filename().string(), std::make_pair(Width, Height), Duration));
+            _mm_free(AlignedImg);
 
             if (!cv::imwrite(OutputPath + Entry.path().filename().string(), EdgedImg))
             {

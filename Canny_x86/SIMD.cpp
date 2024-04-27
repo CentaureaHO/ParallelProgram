@@ -281,9 +281,9 @@ void AVX::A256::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int 
 
 void AVX::A512::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height)
 {
-    std::vector<float>       Tmp(Width * Height, 0.0f);
     int                      ThreadsNum = std::thread::hardware_concurrency();
     std::vector<std::thread> Threads(ThreadsNum);
+    float*                   Tmp = (float*)_mm_malloc(Width * Height * sizeof(float), 64);
 
     for (int t = 0; t < ThreadsNum; ++t)
     {
@@ -298,47 +298,45 @@ void AVX::A512::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int 
                 {
                     __m512 PixelVal  = _mm512_setzero_ps();
                     __m512 KernelSum = _mm512_setzero_ps();
-
                     for (int i = -KernelRadius; i <= KernelRadius; i++)
                     {
                         int nx = x + i;
                         if (nx >= 0 && nx < Width)
                         {
-                            int    ImgIdx = y * Width + nx;
-                            __m512 ImgPixel =
-                                _mm512_cvtepi32_ps(_mm512_cvtepu8_epi32(_mm_loadu_si128((__m128i*)&OriImg[ImgIdx])));
-                            __m512 KernelVal = _mm512_set1_ps(GaussianKernel_1D[KernelRadius + i]);
-                            PixelVal         = _mm512_add_ps(PixelVal, _mm512_mul_ps(ImgPixel, KernelVal));
-                            KernelSum        = _mm512_add_ps(KernelSum, KernelVal);
+                            __m512i data = _mm512_cvtepu8_epi32(_mm_loadu_si128((__m128i*)(OriImg + y * Width + nx)));
+                            __m512  ImgPixel  = _mm512_cvtepi32_ps(data);
+                            __m512  KernelVal = _mm512_set1_ps(GaussianKernel_1D[KernelRadius + i]);
+                            PixelVal          = _mm512_add_ps(PixelVal, _mm512_mul_ps(ImgPixel, KernelVal));
+                            KernelSum         = _mm512_add_ps(KernelSum, KernelVal);
                         }
                     }
-
                     __m512 InvKernelSum = _mm512_div_ps(_mm512_set1_ps(1.0f), KernelSum);
-                    _mm512_storeu_ps(&Tmp[y * Width + x], _mm512_mul_ps(PixelVal, InvKernelSum));
+                    _mm512_storeu_ps(Tmp + y * Width + x, _mm512_mul_ps(PixelVal, InvKernelSum));
                 }
-
-                for (; x < Width; x++)
+                if (x < Width)
                 {
-                    float PixelVal  = 0.0f;
-                    float KernelSum = 0.0f;
-                    for (int i = -KernelRadius; i <= KernelRadius; i++)
+                    for (; x < Width; x++)
                     {
-                        int nx = x + i;
-                        if (nx >= 0 && nx < Width)
+                        float PixelVal  = 0.0f;
+                        float KernelSum = 0.0f;
+                        for (int i = -KernelRadius; i <= KernelRadius; i++)
                         {
-                            int   ImgIdx    = y * Width + nx;
-                            float ImgPixel  = static_cast<float>(OriImg[ImgIdx]);
-                            float KernelVal = GaussianKernel_1D[KernelRadius + i];
-                            PixelVal += ImgPixel * KernelVal;
-                            KernelSum += KernelVal;
+                            int nx = x + i;
+                            if (nx >= 0 && nx < Width)
+                            {
+                                float ImgPixel  = static_cast<float>(OriImg[y * Width + nx]);
+                                float KernelVal = GaussianKernel_1D[KernelRadius + i];
+                                PixelVal += ImgPixel * KernelVal;
+                                KernelSum += KernelVal;
+                            }
                         }
+                        Tmp[y * Width + x] = PixelVal / KernelSum;
                     }
-                    Tmp[y * Width + x] = PixelVal / KernelSum;
                 }
             }
         });
     }
-    for (auto& Th : Threads) Th.join();
+    for (auto& th : Threads) th.join();
 
     for (int t = 0; t < ThreadsNum; ++t)
     {
@@ -353,100 +351,45 @@ void AVX::A512::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int 
                 {
                     __m512 PixelVal  = _mm512_setzero_ps();
                     __m512 KernelSum = _mm512_setzero_ps();
-
-                    for (int i = -KernelRadius; i <= KernelRadius; i++)
+                    for (int j = -KernelRadius; j <= KernelRadius; j++)
                     {
-                        int nx = x + i;
-                        if (nx >= 0 && nx < Width)
-                        {
-                            int    ImgIdx = y * Width + nx;
-                            __m512 ImgPixel =
-                                _mm512_cvtepi32_ps(_mm512_cvtepu8_epi32(_mm_loadu_si128((__m128i*)&OriImg[ImgIdx])));
-                            __m512 KernelVal = _mm512_set1_ps(GaussianKernel_1D[KernelRadius + i]);
-                            PixelVal         = _mm512_add_ps(PixelVal, _mm512_mul_ps(ImgPixel, KernelVal));
-                            KernelSum        = _mm512_add_ps(KernelSum, KernelVal);
-                        }
-                    }
-
-                    __m512 InvKernelSum = _mm512_div_ps(_mm512_set1_ps(1.0f), KernelSum);
-                    _mm512_storeu_ps(&Tmp[y * Width + x], _mm512_mul_ps(PixelVal, InvKernelSum));
-                }
-
-                for (; x < Width; x++)
-                {
-                    float PixelVal  = 0.0f;
-                    float KernelSum = 0.0f;
-                    for (int i = -KernelRadius; i <= KernelRadius; i++)
-                    {
-                        int nx = x + i;
-                        if (nx >= 0 && nx < Width)
-                        {
-                            int   ImgIdx    = y * Width + nx;
-                            float ImgPixel  = static_cast<float>(OriImg[ImgIdx]);
-                            float KernelVal = GaussianKernel_1D[KernelRadius + i];
-                            PixelVal += ImgPixel * KernelVal;
-                            KernelSum += KernelVal;
-                        }
-                    }
-                    Tmp[y * Width + x] = PixelVal / KernelSum;
-                }
-            }
-        });
-    }
-    for (auto& Th : Threads) Th.join();
-
-    std::vector<float> OutputTmp(Width * Height, 0.0f);
-    for (int t = 0; t < ThreadsNum; ++t)
-    {
-        Threads[t] = std::thread([&, t]() {
-            int RowPerThread = Height / ThreadsNum;
-            int Start        = t * RowPerThread;
-            int End          = (t == ThreadsNum - 1) ? Height : Start + RowPerThread;
-            for (int y = Start; y < End; y++)
-            {
-                int x = 0;
-                for (; x <= Width - 16; x += 16)
-                {
-                    __m512 PixelVal  = _mm512_setzero_ps();
-                    __m512 KernelSum = _mm512_setzero_ps();
-
-                    for (int i = -KernelRadius; i <= KernelRadius; i++)
-                    {
-                        int ny = y + i;
+                        int ny = y + j;
                         if (ny >= 0 && ny < Height)
                         {
-                            int    ImgIdx    = ny * Width + x;
-                            __m512 ImgPixel  = _mm512_loadu_ps(&Tmp[ImgIdx]);
-                            __m512 KernelVal = _mm512_set1_ps(GaussianKernel_1D[KernelRadius + i]);
+                            __m512 ImgPixel  = _mm512_loadu_ps(Tmp + ny * Width + x);
+                            __m512 KernelVal = _mm512_set1_ps(GaussianKernel_1D[KernelRadius + j]);
                             PixelVal         = _mm512_add_ps(PixelVal, _mm512_mul_ps(ImgPixel, KernelVal));
                             KernelSum        = _mm512_add_ps(KernelSum, KernelVal);
                         }
                     }
                     __m512 InvKernelSum = _mm512_div_ps(_mm512_set1_ps(1.0f), KernelSum);
-                    _mm512_storeu_ps(&OutputTmp[y * Width + x], _mm512_mul_ps(PixelVal, InvKernelSum));
+                    _mm512_storeu_ps(Tmp + y * Width + x, _mm512_mul_ps(PixelVal, InvKernelSum));
                 }
-
-                for (; x < Width; x++)
+                if (x < Width)
                 {
-                    float PixelVal  = 0.0f;
-                    float KernelSum = 0.0f;
-                    for (int i = -KernelRadius; i <= KernelRadius; i++)
+                    for (; x < Width; x++)
                     {
-                        int ny = y + i;
-                        if (ny >= 0 && ny < Height)
+                        float PixelVal  = 0.0f;
+                        float KernelSum = 0.0f;
+                        for (int j = -KernelRadius; j <= KernelRadius; j++)
                         {
-                            int   ImgIdx    = ny * Width + x;
-                            float ImgPixel  = Tmp[ImgIdx];
-                            float KernelVal = GaussianKernel_1D[KernelRadius + i];
-                            PixelVal += ImgPixel * KernelVal;
-                            KernelSum += KernelVal;
+                            int ny = y + j;
+                            if (ny >= 0 && ny < Height)
+                            {
+                                float ImgPixel  = Tmp[ny * Width + x];
+                                float KernelVal = GaussianKernel_1D[KernelRadius + j];
+                                PixelVal += ImgPixel * KernelVal;
+                                KernelSum += KernelVal;
+                            }
                         }
+                        Tmp[y * Width + x] = PixelVal / KernelSum;
                     }
-                    OutputTmp[y * Width + x] = PixelVal / KernelSum;
                 }
             }
         });
     }
-    for (auto& Th : Threads) Th.join();
-    for (int i = 0; i < Width * Height; i++) Output[i] = static_cast<uint8_t>(OutputTmp[i]);
+    for (auto& th : Threads) th.join();
+
+    for (int i = 0; i < Width * Height; i++) Output[i] = static_cast<uint8_t>(std::min(std::max(0.0f, Tmp[i]), 255.0f));
+    _mm_free(Tmp);
 }
