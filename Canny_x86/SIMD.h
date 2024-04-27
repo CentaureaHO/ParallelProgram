@@ -1,20 +1,44 @@
 #pragma once
 #include <cstdint>
 
-namespace SSE
+namespace SIMD
 {
-    void PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height);
-}
-
-namespace AVX
-{
-    namespace A256
+    namespace SSE
     {
         void PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height);
     }
 
-    namespace A512
+    namespace AVX
+    {
+        namespace A256
+        {
+            void PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height);
+        }
+
+        namespace A512
+        {
+            void PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height);
+        }
+    }  // namespace AVX
+}  // namespace SIMD
+
+namespace ThSIMD
+{
+    namespace SSE
     {
         void PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height);
     }
-}  // namespace AVX
+
+    namespace AVX
+    {
+        namespace A256
+        {
+            void PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height);
+        }
+
+        namespace A512
+        {
+            void PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height);
+        }
+    }  // namespace AVX
+}  // namespace ThSIMD
