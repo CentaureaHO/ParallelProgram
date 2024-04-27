@@ -10,7 +10,7 @@ const int KernelRadius = 1;
 
 void SIMD::SSE::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height)
 {
-    std::vector<float> Tmp(Width * Height, 0.0f);
+    float* Tmp = static_cast<float*>(_mm_malloc(Width * Height * sizeof(float), 16));
 
     for (int y = 0; y < Height; y++)
     {
@@ -133,11 +133,12 @@ void SIMD::SSE::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int 
             Output[y * Width + x] = _mm_cvtss_f32(_mm_shuffle_ps(PixelVal, PixelVal, _MM_SHUFFLE(0, 0, 0, 0)));
         }
     }
+    _mm_free(Tmp);
 }
 
 void SIMD::AVX::A256::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height)
 {
-    std::vector<float> Tmp(Width * Height, 0.0f);
+    float* Tmp = static_cast<float*>(_mm_malloc(Width * Height * sizeof(float), 32));
 
     for (int y = 0; y < Height; y++)
     {
@@ -168,7 +169,7 @@ void SIMD::AVX::A256::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg
             }
 
             __m256 InvKernelSum = _mm256_div_ps(_mm256_set1_ps(1.0f), KernelSum);
-            _mm256_storeu_ps(&Tmp[y * Width + x], _mm256_mul_ps(PixelVal, InvKernelSum));
+            _mm256_store_ps(&Tmp[y * Width + x], _mm256_mul_ps(PixelVal, InvKernelSum));
         }
 
         for (; x < Width; x++)
@@ -213,7 +214,7 @@ void SIMD::AVX::A256::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg
             }
 
             __m256 InvKernelSum = _mm256_div_ps(_mm256_set1_ps(1.0f), KernelSum);
-            _mm256_storeu_ps(&Tmp[y * Width + x], _mm256_mul_ps(PixelVal, InvKernelSum));
+            _mm256_store_ps(&Tmp[y * Width + x], _mm256_mul_ps(PixelVal, InvKernelSum));
         }
 
         for (; x < Width; x++)
@@ -237,6 +238,7 @@ void SIMD::AVX::A256::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg
     }
 
     for (int i = 0; i < Width * Height; i++) Output[i] = static_cast<uint8_t>(Tmp[i]);
+    _mm_free(Tmp);
 }
 
 void SIMD::AVX::A512::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height)
@@ -263,7 +265,7 @@ void SIMD::AVX::A512::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg
                 }
             }
             __m512 InvKernelSum = _mm512_div_ps(_mm512_set1_ps(1.0f), KernelSum);
-            _mm512_storeu_ps(Tmp + y * Width + x, _mm512_mul_ps(PixelVal, InvKernelSum));
+            _mm512_store_ps(Tmp + y * Width + x, _mm512_mul_ps(PixelVal, InvKernelSum));
         }
         if (x < Width)
         {
@@ -299,14 +301,14 @@ void SIMD::AVX::A512::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg
                 int ny = y + j;
                 if (ny >= 0 && ny < Height)
                 {
-                    __m512 ImgPixel  = _mm512_loadu_ps(Tmp + ny * Width + x);
+                    __m512 ImgPixel  = _mm512_load_ps(Tmp + ny * Width + x);
                     __m512 KernelVal = _mm512_set1_ps(GaussianKernel_1D[KernelRadius + j]);
                     PixelVal         = _mm512_add_ps(PixelVal, _mm512_mul_ps(ImgPixel, KernelVal));
                     KernelSum        = _mm512_add_ps(KernelSum, KernelVal);
                 }
             }
             __m512 InvKernelSum = _mm512_div_ps(_mm512_set1_ps(1.0f), KernelSum);
-            _mm512_storeu_ps(Tmp + y * Width + x, _mm512_mul_ps(PixelVal, InvKernelSum));
+            _mm512_store_ps(Tmp + y * Width + x, _mm512_mul_ps(PixelVal, InvKernelSum));
         }
         if (x < Width)
         {

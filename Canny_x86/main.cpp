@@ -21,7 +21,7 @@ int main()
 
     std::cout << "Max thread nums: " << std::thread::hardware_concurrency() << ".\n";
     Vec<std::tuple<Str, std::pair<int, int>, double>> ImageStatistics;
-    
+
     Str           ImgPath      = "../Images/";
     Str           OutputPath   = "../Output/";
     Str           GaussianPath = "../GaussianImg/";
@@ -30,7 +30,7 @@ int main()
     std::ofstream CSV("Result.csv");
     CSV << "Image Name,Width x Height,Average Processing Time (ns)\n";
 
-    std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = Serial::PerformGaussianBlur;
+    std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = SIMD::SSE::PerformGaussianBlur;
     std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = Serial::ComputeGradients;
     std::function<void(float*, float*, uint8_t*, int, int)>         ReduNM = Serial::ReduceNonMaximum;
     std::function<void(uint8_t*, float*, int, int, int, int)>       DbThre = Serial::PerformDoubleThresholding;
@@ -49,6 +49,11 @@ int main()
 
             cv::Mat GreyImg, EdgedImg, GaussianImg;
             cv::cvtColor(OriImg, GreyImg, cv::COLOR_BGR2GRAY);
+            int OriginalWidth  = GreyImg.cols;
+            int OriginalHeight = GreyImg.rows;
+            int TmpWidth       = GreyImg.cols < 16 ? 16 : GreyImg.cols / 16 * 16;
+            int TmpHeight      = GreyImg.rows < 16 ? 16 : GreyImg.rows / 16 * 16;
+            cv::resize(GreyImg, GreyImg, cv::Size(TmpWidth, TmpHeight));
             EdgedImg.create(GreyImg.size(), CV_8UC1);
             GaussianImg.create(GreyImg.size(), CV_8UC1);
 
@@ -75,6 +80,7 @@ int main()
 
             cv::imwrite(GaussianPath + Entry.path().filename().string(), GaussianImg);
             /*
+            cv.resize(EdgedImg, EdgedImg, cv::Size(OriginalWidth, OriginalHeight));
             if (!cv::imwrite(OutputPath + Entry.path().filename().string(), EdgedImg))
             {
                 std::cerr << "Failed to save the image: " << OutputPath + Entry.path().filename().string() << std::endl;
