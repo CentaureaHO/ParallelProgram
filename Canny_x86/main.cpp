@@ -29,7 +29,7 @@ int main()
     std::ofstream CSV("Result.csv");
     CSV << "Image Name,Width x Height,Average Processing Time (ns)\n";
 
-    std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = Serial::PerformGaussianBlur;
+    std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = SIMD::AVX::A512::PerformGaussianBlur;
     std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = Serial::ComputeGradients;
     std::function<void(float*, float*, uint8_t*, int, int)>         ReduNM = Serial::ReduceNonMaximum;
     std::function<void(uint8_t*, float*, int, int, int, int)>       DbThre = Serial::PerformDoubleThresholding;
@@ -43,20 +43,11 @@ int main()
     std::cin >> Choice;
     switch (Choice)
     {
-    case 1:
-        Gauss  = Serial::PerformGaussianBlur;
-        break;
-    case 2:
-        Gauss  = SIMD::SSE::PerformGaussianBlur;
-        break;
-    case 3:
-        Gauss  = SIMD::AVX::A256::PerformGaussianBlur;
-        break;
-    case 4:
-        Gauss  = SIMD::AVX::A512::PerformGaussianBlur;
-        break;
-    default:
-        break;
+        case 1: Gauss = Serial::PerformGaussianBlur; break;
+        case 2: Gauss = SIMD::SSE::PerformGaussianBlur; break;
+        case 3: Gauss = SIMD::AVX::A256::PerformGaussianBlur; break;
+        case 4: Gauss = SIMD::AVX::A512::PerformGaussianBlur; break;
+        default: break;
     }
 
     std::cout << "Please enter the number of iterations per image: ";
@@ -93,10 +84,10 @@ int main()
                 auto Start = hrClk::now();
                 Gauss(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
                 auto End = hrClk::now();
-                // Grad(GradientPixels.data(), SegmentPixels.data(), GaussianImg.data, GreyImg.cols, GreyImg.rows);
-                // ReduNM(MatrixPixels.data(), GradientPixels.data(), SegmentPixels.data(), GreyImg.cols, GreyImg.rows);
-                // DbThre(DoubleThrePixels.data(), MatrixPixels.data(), HighThre, LowThre, GreyImg.cols, GreyImg.rows);
-                // EdgeHy(EdgedImg.data, DoubleThrePixels.data(), GreyImg.cols, GreyImg.rows);
+                Grad(GradientPixels.data(), SegmentPixels.data(), GaussianImg.data, GreyImg.cols, GreyImg.rows);
+                ReduNM(MatrixPixels.data(), GradientPixels.data(), SegmentPixels.data(), GreyImg.cols, GreyImg.rows);
+                DbThre(DoubleThrePixels.data(), MatrixPixels.data(), HighThre, LowThre, GreyImg.cols, GreyImg.rows);
+                EdgeHy(EdgedImg.data, DoubleThrePixels.data(), GreyImg.cols, GreyImg.rows);
 
                 Durations.push_back(std::chrono::duration_cast<ns>(End - Start));
             }
@@ -105,18 +96,16 @@ int main()
                 std::accumulate(Durations.begin(), Durations.end(), ns(0), [](ns a, ns b) { return a + b; }) / n;
 
             cv::imwrite(GaussianPath + Entry.path().filename().string(), GaussianImg);
-            /*
-            cv.resize(EdgedImg, EdgedImg, cv::Size(OriginalWidth, OriginalHeight));
+            cv::resize(EdgedImg, EdgedImg, cv::Size(OriginalWidth, OriginalHeight));
             if (!cv::imwrite(OutputPath + Entry.path().filename().string(), EdgedImg))
             {
                 std::cerr << "Failed to save the image: " << OutputPath + Entry.path().filename().string() << std::endl;
             }
             else { std::cout << "Final image saved to " << OutputPath + Entry.path().filename().string() << std::endl; }
-            */
 
-            std::cout << "Processed " << Entry.path().filename().string() << " (" << GreyImg.cols << "x" << GreyImg.rows
-                      << "): " << AvgTime.count() << "ns" << std::endl;
-            CSV << Entry.path().filename().string() << "," << GreyImg.cols << "x" << GreyImg.rows << ","
+            std::cout << "Processed " << Entry.path().filename().string() << " (" << EdgedImg.cols << "x"
+                      << EdgedImg.rows << "): " << AvgTime.count() << "ns" << std::endl;
+            CSV << Entry.path().filename().string() << "," << EdgedImg.cols << "x" << EdgedImg.rows << ","
                 << AvgTime.count() << "\n";
 
             Durations.clear();

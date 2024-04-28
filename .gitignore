@@ -1,4 +1,5 @@
 build/
 GaussianImg/
 Output/
-CannyRecord
+CannyRecord/
+perf/
