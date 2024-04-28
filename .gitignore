@@ -1,6 +1,6 @@
 build/
 GaussianImg/
 Output/
-CannyRecord/
-perf/
+CannyRecord/Gauss/perf/
+CannyRecord/Gauss/pic/
 Output/
