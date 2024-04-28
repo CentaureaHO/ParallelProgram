@@ -8,23 +8,46 @@ const int KernelSize = 3;
 
 void Serial::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height)
 {
-    const int Offset = ((KernelSize - 1) / 2);
+    const int Offset  = 1;
+    uint8_t*  TempImg = new uint8_t[Width * Height];
 
-    for (int PixNum = 0; PixNum < Height * Width; PixNum++)
+    for (int y = 0; y < Height; y++)
     {
-        float KernelSum = 0, PixelVal = 0;
-        for (int i = 0; i < KernelSize; ++i)
-            for (int j = 0; j < KernelSize; ++j)
-                if (((PixNum + ((i - Offset) * Width) + j - Offset) >= 0) &&
-                    ((PixNum + ((i - Offset) * Width) + j - Offset) <= Height * Width - 1) &&
-                    (((PixNum % Width) + j - Offset) >= 0) && (((PixNum % Width) + j - Offset) <= (Width - 1)))
+        for (int x = 0; x < Width; x++)
+        {
+            float PixelVal = 0, KernelSum = 0;
+            for (int i = -Offset; i <= Offset; i++)
+            {
+                int ReadX = x + i;
+                if (ReadX >= 0 && ReadX < Width)
                 {
-                    PixelVal +=
-                        GaussianKernel_2D[i * KernelSize + j] * OriImg[PixNum + ((i - Offset) * Width) + j - Offset];
-                    KernelSum += GaussianKernel_2D[i * KernelSize + j];
+                    PixelVal += GaussianKernel_1D[i + Offset] * OriImg[y * Width + ReadX];
+                    KernelSum += GaussianKernel_1D[i + Offset];
                 }
-        Output[PixNum] = (uint8_t)(PixelVal / KernelSum);
+            }
+            TempImg[y * Width + x] = (uint8_t)(PixelVal / KernelSum);
+        }
     }
+
+    for (int x = 0; x < Width; x++)
+    {
+        for (int y = 0; y < Height; y++)
+        {
+            float PixelVal = 0, KernelSum = 0;
+            for (int j = -Offset; j <= Offset; j++)
+            {
+                int ReadY = y + j;
+                if (ReadY >= 0 && ReadY < Height)
+                {
+                    PixelVal += GaussianKernel_1D[j + Offset] * TempImg[ReadY * Width + x];
+                    KernelSum += GaussianKernel_1D[j + Offset];
+                }
+            }
+            Output[y * Width + x] = (uint8_t)(PixelVal / KernelSum);
+        }
+    }
+
+    delete[] TempImg;
 }
 
 void Serial::ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8_t* BlurredImage, int Width, int Height)

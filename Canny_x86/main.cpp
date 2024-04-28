@@ -16,8 +16,7 @@ using Vec = std::vector<T>;
 int main()
 {
     int n;
-    std::cout << "Please enter the number of iterations per image: ";
-    std::cin >> n;
+    int Choice;
 
     std::cout << "Max thread nums: " << std::thread::hardware_concurrency() << ".\n";
     Vec<std::tuple<Str, std::pair<int, int>, double>> ImageStatistics;
@@ -30,11 +29,38 @@ int main()
     std::ofstream CSV("Result.csv");
     CSV << "Image Name,Width x Height,Average Processing Time (ns)\n";
 
-    std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = SIMD::SSE::PerformGaussianBlur;
+    std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = Serial::PerformGaussianBlur;
     std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = Serial::ComputeGradients;
     std::function<void(float*, float*, uint8_t*, int, int)>         ReduNM = Serial::ReduceNonMaximum;
     std::function<void(uint8_t*, float*, int, int, int, int)>       DbThre = Serial::PerformDoubleThresholding;
     std::function<void(uint8_t*, uint8_t*, int, int)>               EdgeHy = Serial::PerformEdgeHysteresis;
+
+    std::cout << "Enter the number to select the algorithm:\n"
+                 "1. Serial\n"
+                 "2. SSE\n"
+                 "3. AVX256\n"
+                 "4. AVX512\n";
+    std::cin >> Choice;
+    switch (Choice)
+    {
+    case 1:
+        Gauss  = Serial::PerformGaussianBlur;
+        break;
+    case 2:
+        Gauss  = SIMD::SSE::PerformGaussianBlur;
+        break;
+    case 3:
+        Gauss  = SIMD::AVX::A256::PerformGaussianBlur;
+        break;
+    case 4:
+        Gauss  = SIMD::AVX::A512::PerformGaussianBlur;
+        break;
+    default:
+        break;
+    }
+
+    std::cout << "Please enter the number of iterations per image: ";
+    std::cin >> n;
 
     for (const auto& Entry : fs::directory_iterator(ImgPath))
     {
