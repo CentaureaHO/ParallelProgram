@@ -4,6 +4,7 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <fstream>
+#include <memory>
 #include "Solutions.h"
 
 namespace fs = std::filesystem;
@@ -12,6 +13,19 @@ using hrClk  = std::chrono::high_resolution_clock;
 using Str    = std::string;
 template <typename T>
 using Vec = std::vector<T>;
+
+struct AlignedDeleter
+{
+    void operator()(void* ptr) const { std::free(ptr); }
+};
+
+template <typename T>
+std::unique_ptr<T[], AlignedDeleter> MakeAlignedArray(size_t size, size_t alignment)
+{
+    void* ptr = std::aligned_alloc(alignment, size * sizeof(T));
+    if (!ptr) throw std::bad_alloc();
+    return std::unique_ptr<T[], AlignedDeleter>(static_cast<T*>(ptr));
+}
 
 void SaveGradientsToFile(const Vec<float>& Grads, const Vec<uint8_t>& Dirs, const Str& GradPath, const Str& DirPath)
 {
@@ -33,8 +47,8 @@ void SaveGradientsToFile(const Vec<float>& Grads, const Vec<uint8_t>& Dirs, cons
 
 int main()
 {
-    int n;
-    int Choice;
+    int n      = 0;
+    int Choice = 0;
 
     std::cout << "Max thread nums: " << std::thread::hardware_concurrency() << ".\n";
     Vec<std::tuple<Str, std::pair<int, int>, double>> ImageStatistics;
@@ -48,8 +62,8 @@ int main()
     std::ofstream CSV("Result.csv");
     CSV << "Image Name,Width x Height,Average Processing Time (ns)\n";
 
-    std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = Serial::PerformGaussianBlur;
-    std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = Serial::ComputeGradients;
+    // std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = Serial::PerformGaussianBlur;
+    std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = SIMD::AVX::A512::ComputeGradients;
     std::function<void(float*, float*, uint8_t*, int, int)>         ReduNM = Serial::ReduceNonMaximum;
     std::function<void(uint8_t*, float*, int, int, int, int)>       DbThre = Serial::PerformDoubleThresholding;
     std::function<void(uint8_t*, uint8_t*, int, int)>               EdgeHy = Serial::PerformEdgeHysteresis;
@@ -69,7 +83,6 @@ int main()
         case 4: Gauss = SIMD::AVX::A512::PerformGaussianBlur; break;
         default: break;
     }
-
 
     std::cout << "Please enter the number of iterations per image: ";
     std::cin >> n;
@@ -98,17 +111,17 @@ int main()
             cv::Mat GaussianImg = cv::imread(GaussianPath + Entry.path().filename().string(), CV_8UC1);
             cv::resize(GaussianImg, GaussianImg, cv::Size(TmpWidth, TmpHeight));
 
-            std::vector<float>   GradientPixels(GreyImg.total());
-            std::vector<float>   MatrixPixels(GreyImg.total());
-            std::vector<uint8_t> SegmentPixels(GreyImg.total());
-            std::vector<uint8_t> DoubleThrePixels(GreyImg.total());
-            std::vector<ns>      Durations;
+            auto            GradientPixels   = MakeAlignedArray<float>(GreyImg.total(), 64);
+            auto            MatrixPixels     = MakeAlignedArray<float>(GreyImg.total(), 64);
+            auto            SegmentPixels    = MakeAlignedArray<uint8_t>(GreyImg.total(), 64);
+            auto            DoubleThrePixels = MakeAlignedArray<uint8_t>(GreyImg.total(), 64);
+            std::vector<ns> Durations;
             for (int i = 0; i < n; ++i)
             {
                 // Gauss(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
 
                 auto Start = hrClk::now();
-                Grad(GradientPixels.data(), SegmentPixels.data(), GaussianImg.data, GreyImg.cols, GreyImg.rows);
+                Grad(GradientPixels.get(), SegmentPixels.get(), GaussianImg.data, GreyImg.cols, GreyImg.rows);
                 auto End = hrClk::now();
                 /*
                 SaveGradientsToFile(GradientPixels,
@@ -117,11 +130,11 @@ int main()
                     GradientPath + "Direction/" + Entry.path().stem().string() + ".bin");
                 */
 
-                ReduNM(MatrixPixels.data(), GradientPixels.data(), SegmentPixels.data(), GreyImg.cols, GreyImg.rows);
+                ReduNM(MatrixPixels.get(), GradientPixels.get(), SegmentPixels.get(), GreyImg.cols, GreyImg.rows);
 
-                DbThre(DoubleThrePixels.data(), MatrixPixels.data(), HighThre, LowThre, GreyImg.cols, GreyImg.rows);
+                DbThre(DoubleThrePixels.get(), MatrixPixels.get(), HighThre, LowThre, GreyImg.cols, GreyImg.rows);
 
-                EdgeHy(EdgedImg.data, DoubleThrePixels.data(), GreyImg.cols, GreyImg.rows);
+                EdgeHy(EdgedImg.data, DoubleThrePixels.get(), GreyImg.cols, GreyImg.rows);
 
                 Durations.push_back(std::chrono::duration_cast<ns>(End - Start));
             }
