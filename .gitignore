@@ -3,5 +3,6 @@ GaussianImg/
 Output/
 CannyRecord/Gauss/perf/
 CannyRecord/Gauss/pic/
+CannyRecord/Grad/perf/
 Output/
 GradientData/

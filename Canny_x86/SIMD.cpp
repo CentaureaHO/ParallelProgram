@@ -342,7 +342,7 @@ void SIMD::AVX::A512::ComputeGradients(
 {
     const int8_t Gx[]   = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
     const int8_t Gy[]   = {1, 2, 1, 0, 0, 0, -1, -2, -1};
-    int          Offset = 1;
+    const int    Offset = 1;
 
     for (int y = Offset; y < Height - Offset; y++)
     {
@@ -378,24 +378,29 @@ void SIMD::AVX::A512::ComputeGradients(
 
             __m512 Degrees = _mm512_arctan2(GradY, GradX) * _mm512_set1_ps(360.0 / (2.0 * M_PI));
 
-            float Angles[16];
-            _mm512_storeu_ps(Angles, Degrees);
+            __m512i   Directions = _mm512_setzero_si512();
+            __mmask16 DireMask1  = (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(22.5), _CMP_LE_OS) &
+                                      _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-22.5), _CMP_NLE_US)) |
+                                  _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-157.5), _CMP_LE_OS) |
+                                  _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(157.5), _CMP_NLE_US);
+            __mmask16 DireMask2 = (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(22.5), _CMP_GT_OS) &
+                                      _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(67.5), _CMP_LE_OS)) |
+                                  (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-157.5), _CMP_GT_OS) &
+                                      _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-112.5), _CMP_LE_OS));
+            __mmask16 DireMask3 = (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(67.5), _CMP_GT_OS) &
+                                      _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(112.5), _CMP_LE_OS)) |
+                                  (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-112.5), _CMP_GE_OS) &
+                                      _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-67.5), _CMP_LT_OS));
+            __mmask16 DireMask4 = (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-67.5), _CMP_GE_OS) &
+                                      _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-22.5), _CMP_LT_OS)) |
+                                  (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(112.5), _CMP_GT_OS) &
+                                      _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(157.5), _CMP_LT_OS));
+            Directions = _mm512_mask_add_epi32(Directions, DireMask1, Directions, _mm512_set1_epi32(1));
+            Directions = _mm512_mask_add_epi32(Directions, DireMask2, Directions, _mm512_set1_epi32(2));
+            Directions = _mm512_mask_add_epi32(Directions, DireMask3, Directions, _mm512_set1_epi32(3));
+            Directions = _mm512_mask_add_epi32(Directions, DireMask4, Directions, _mm512_set1_epi32(4));
 
-            for (int i = 0; i < 16; i++)
-            {
-                int   Dire  = 0;
-                float Angle = Angles[i];
-                if ((Angle <= 22.5 && Angle >= -22.5) || (Angle <= -157.5) || (Angle >= 157.5))
-                    Dire = 1;
-                else if ((Angle > 22.5 && Angle <= 67.5) || (Angle > -157.5 && Angle <= -112.5))
-                    Dire = 2;
-                else if ((Angle > 67.5 && Angle <= 112.5) || (Angle >= -112.5 && Angle < -67.5))
-                    Dire = 3;
-                else if ((Angle >= -67.5 && Angle < -22.5) || (Angle > 112.5 && Angle < 157.5))
-                    Dire = 4;
-
-                GradDires[x + y * Width + i] = (uint8_t)Dire;
-            }
+            _mm_storeu_si128((__m128i*)(GradDires + x + y * Width), _mm512_cvtsepi32_epi8(Directions));
         }
     }
 }
