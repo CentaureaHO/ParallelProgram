@@ -1,11 +1,10 @@
+#include <algorithm>
 #include <immintrin.h>
-#include <thread>
-#include <vector>
+#include <math.h>
 #include <xmmintrin.h>
-#include <bits/stdc++.h>
+#include "AVX_Lib.h"
 #include "GaussDef.h"
 #include "SIMD.h"
-#include "AVX_Lib.h"
 
 const int KernelRadius = 1;
 
