@@ -63,12 +63,12 @@ int main()
     const int HighThre     = 90;
 
     // std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = Serial::PerformGaussianBlur;
-    std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = OpenMP::ComputeGradients;
+    std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = PThread::ComputeGradients;
     std::function<void(float*, float*, uint8_t*, int, int)>         ReduNM = Serial::ReduceNonMaximum;
     std::function<void(uint8_t*, float*, int, int, int, int)>       DbThre = Serial::PerformDoubleThresholding;
     std::function<void(uint8_t*, uint8_t*, int, int)>               EdgeHy = Serial::PerformEdgeHysteresis;
 
-    n = 50;
+    n = 1;
     for (int th = 1; th >= 1; --th)
     {
         UseThread = th;

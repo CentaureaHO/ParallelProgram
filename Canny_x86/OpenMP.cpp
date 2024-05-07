@@ -10,14 +10,14 @@ void OpenMP::ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8_
     const int8_t Gy[]   = {1, 2, 1, 0, 0, 0, -1, -2, -1};
     const int    Offset = 1;
 
-    #pragma omp parallel for collapse(2)
+#pragma omp parallel for collapse(2)
     for (int y = Offset; y < Height - Offset; y++)
     {
         for (int x = Offset; x < Width - Offset; x += 16)
         {
             __m512 GradX = _mm512_setzero_ps();
             __m512 GradY = _mm512_setzero_ps();
-            
+
             for (int ky = -Offset; ky <= Offset; ky++)
             {
                 for (int kx = -Offset; kx <= Offset; kx++)
