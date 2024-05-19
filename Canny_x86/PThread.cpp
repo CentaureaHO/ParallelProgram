@@ -2,8 +2,12 @@
 #include <iostream>
 #include <math.h>
 #include <pthread.h>
+#include <vector>
 #include "AVX_Lib.h"
+#include "GaussDef.h"
 #include "PThread.h"
+
+const int ThreadNum = 16;
 
 void PThread::ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8_t* BlurredImage, int Width, int Height)
 {
@@ -20,18 +24,17 @@ void PThread::ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8
         const int8_t*  Gy;
     };
 
-    const int8_t Gx[]   = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
-    const int8_t Gy[]   = {1, 2, 1, 0, 0, 0, -1, -2, -1};
-    const int    Offset = 1;
+    static const int8_t Gx[]   = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
+    static const int8_t Gy[]   = {1, 2, 1, 0, 0, 0, -1, -2, -1};
+    static const int    Offset = 1;
 
-    const int  ThreadNums = 16;
-    pthread_t* Threads    = new pthread_t[ThreadNums];
-    int        RPT        = Height / ThreadNums;
+    pthread_t Threads[ThreadNum];
+    int       RPT = Height / ThreadNum;
 
-    for (int i = 0; i < ThreadNums; i++)
+    for (int i = 0; i < ThreadNum; i++)
     {
         int RFrom = i * RPT + 1;
-        int REnd  = (i == ThreadNums - 1) ? (Height - 1) : (RFrom + RPT);
+        int REnd  = (i == ThreadNum - 1) ? (Height - 1) : (RFrom + RPT);
 
         ThreadData* ThData = new ThreadData{Gradients, GradDires, BlurredImage, Width, Height, RFrom, REnd, Gx, Gy};
 
@@ -110,6 +113,5 @@ void PThread::ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8
         }
     }
 
-    for (int i = 0; i < ThreadNums; i++) { pthread_join(Threads[i], NULL); }
-    delete[] Threads;
+    for (int i = 0; i < ThreadNum; i++) { pthread_join(Threads[i], NULL); }
 }

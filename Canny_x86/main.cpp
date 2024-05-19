@@ -62,17 +62,17 @@ int main()
     const int LowThre      = 30;
     const int HighThre     = 90;
 
-    // std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = Serial::PerformGaussianBlur;
-    std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = PThread::ComputeGradients;
+    std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = OpenMP::PerformGaussianBlur;
+    std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = OpenMP::ComputeGradients;
     std::function<void(float*, float*, uint8_t*, int, int)>         ReduNM = Serial::ReduceNonMaximum;
     std::function<void(uint8_t*, float*, int, int, int, int)>       DbThre = Serial::PerformDoubleThresholding;
     std::function<void(uint8_t*, uint8_t*, int, int)>               EdgeHy = Serial::PerformEdgeHysteresis;
 
+    omp_set_num_threads(16);
     n = 1;
     for (int th = 1; th >= 1; --th)
     {
         UseThread = th;
-        omp_set_num_threads(16);
         std::ofstream CSV("PThread_Thread" + std::to_string(4) + ".csv");
         CSV << "Image Name,Width x Height,Average Processing Time (ns)\n";
         for (const auto& Entry : fs::directory_iterator(ImgPath))
@@ -104,20 +104,18 @@ int main()
                 std::vector<ns> Durations;
 
                 // 以下部分为预运行，用于给OpenMP创建线程池来避免其初始化对测试数据的影响
-                // Gauss(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
-                Grad(GradientPixels.get(), SegmentPixels.get(), GaussianImg.data, GreyImg.cols, GreyImg.rows);
-                ReduNM(MatrixPixels.get(), GradientPixels.get(), SegmentPixels.get(), GreyImg.cols, GreyImg.rows);
-                DbThre(DoubleThrePixels.get(), MatrixPixels.get(), HighThre, LowThre, GreyImg.cols, GreyImg.rows);
-                EdgeHy(EdgedImg.data, DoubleThrePixels.get(), GreyImg.cols, GreyImg.rows);
+                for (int i = 0; i < 10; ++i)
+                    OpenMP::PerformGaussianBlur(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
 
                 // 以下部分为实际测试
                 for (int i = 0; i < n; ++i)
                 {
-                    // Gauss(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
-
                     auto Start = hrClk::now();
-                    Grad(GradientPixels.get(), SegmentPixels.get(), GaussianImg.data, GreyImg.cols, GreyImg.rows);
+                    Gauss(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
                     auto End = hrClk::now();
+
+                    Grad(GradientPixels.get(), SegmentPixels.get(), GaussianImg.data, GreyImg.cols, GreyImg.rows);
+
                     /*
                     SaveGradientsToFile(GradientPixels,
                         SegmentPixels,
@@ -148,9 +146,9 @@ int main()
                     std::cout << "Final image saved to " << OutputPath + Entry.path().filename().string() << std::endl;
                 }
 
-                std::cout << "Processed " << Entry.path().filename().string() << " (" << EdgedImg.cols << "x"
-                          << EdgedImg.rows << "): " << AvgTime.count() << "ns" << std::endl;
-                CSV << Entry.path().filename().string() << "," << EdgedImg.cols << "x" << EdgedImg.rows << ","
+                std::cout << "Processed " << Entry.path().filename().string() << " (" << GreyImg.cols << "x"
+                          << GreyImg.rows << "): " << AvgTime.count() << "ns" << std::endl;
+                CSV << Entry.path().filename().string() << "," << GreyImg.cols << "x" << GreyImg.rows << ","
                     << AvgTime.count() << "\n";
                 Durations.clear();
             }
