@@ -16,7 +16,7 @@ ThreadPool::ThreadPool(unsigned int ThreadNum) : Stop(0), ActiveTasks(0)
 ThreadPool::~ThreadPool()
 {
     {
-        std::unique_lock<std::mutex> lock(QueueMutex);
+        std::unique_lock<std::mutex> Lock(QueueMutex);
         Stop = 1;
     }
     CondVar.notify_all();
@@ -25,7 +25,7 @@ ThreadPool::~ThreadPool()
 
 void ThreadPool::Run()
 {
-    while (1 == 1)
+    while (true)
     {
         std::function<void()> Task;
         {

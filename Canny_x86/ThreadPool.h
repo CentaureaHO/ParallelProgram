@@ -8,26 +8,26 @@
 #include <vector>
 #include <mutex>
 #include <condition_variable>
+#include <type_traits>
 
 template <class F, class... Args>
-using RetType = typename std::result_of<F(Args...)>::type;
+using RetType = typename std::invoke_result<F, Args...>::type;
 
 class ThreadPool
 {
   private:
-    unsigned int                      ActiveTasks;
+    std::vector<pthread_t>            Workers;
+    std::queue<std::function<void()>> Tasks;
+    std::mutex                        QueueMutex;
     std::condition_variable           CondVar;
     std::condition_variable           FinishedVar;
-    std::mutex                        QueueMutex;
     bool                              Stop;
-    std::queue<std::function<void()>> Tasks;
-    std::vector<pthread_t>            Workers;
+    unsigned int                      ActiveTasks;
 
   public:
     ThreadPool(unsigned int ThreadNum);
     ~ThreadPool();
 
-  public:
     template <class F, class... Args>
     std::future<RetType<F, Args...>> EnQueue(F&& ThFunc, Args&&... args);
     void                             Run();

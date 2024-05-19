@@ -6,8 +6,13 @@
 #include "AVX_Lib.h"
 #include "GaussDef.h"
 #include "PThread.h"
+#include "ThreadPool.h"
+
+ThreadPool Pool(16);
 
 const int ThreadNum = 16;
+
+void PThread::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height) {}
 
 void PThread::ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8_t* BlurredImage, int Width, int Height)
 {

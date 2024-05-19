@@ -3,22 +3,26 @@
 
 namespace SIMD
 {
-    namespace SSE
+    class SSE
     {
-        void PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height);
-    }
+      public:
+        static void PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height);
+    };
 
     namespace AVX
     {
-        namespace A256
+        class A256
         {
-            void PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height);
-        }
+          public:
+            static void PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height);
+        };
 
-        namespace A512
+        class A512
         {
-            void PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height);
-            void ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8_t* BlurredImage, int Width, int Height);
-        }
+          public:
+            static void PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height);
+            static void ComputeGradients(
+                float* Gradients, uint8_t* GradDires, const uint8_t* BlurredImage, int Width, int Height);
+        };  // namespace A512
     }  // namespace AVX
 }  // namespace SIMD
