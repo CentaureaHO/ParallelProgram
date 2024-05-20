@@ -62,11 +62,13 @@ int main()
     const int LowThre      = 30;
     const int HighThre     = 90;
 
-    std::function<void(uint8_t*, const uint8_t*, int, int)>         Gauss  = OpenMP::PerformGaussianBlur;
-    std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = OpenMP::ComputeGradients;
-    std::function<void(float*, float*, uint8_t*, int, int)>         ReduNM = Serial::ReduceNonMaximum;
-    std::function<void(uint8_t*, float*, int, int, int, int)>       DbThre = Serial::PerformDoubleThresholding;
-    std::function<void(uint8_t*, uint8_t*, int, int)>               EdgeHy = Serial::PerformEdgeHysteresis;
+    PThread& PI = PThread::GetInstabce();
+
+    std::function<void(uint8_t*, const uint8_t*, int, int)> Gauss = OpenMP::PerformGaussianBlur;
+    // std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = PThread::ComputeGradients;
+    std::function<void(float*, float*, uint8_t*, int, int)>   ReduNM = Serial::ReduceNonMaximum;
+    std::function<void(uint8_t*, float*, int, int, int, int)> DbThre = Serial::PerformDoubleThresholding;
+    std::function<void(uint8_t*, uint8_t*, int, int)>         EdgeHy = Serial::PerformEdgeHysteresis;
 
     omp_set_num_threads(16);
     n = 1;
@@ -111,10 +113,12 @@ int main()
                 for (int i = 0; i < n; ++i)
                 {
                     auto Start = hrClk::now();
-                    Gauss(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
+                    PI.PerformGaussianBlur(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
+                    // Gauss(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
                     auto End = hrClk::now();
 
-                    Grad(GradientPixels.get(), SegmentPixels.get(), GaussianImg.data, GreyImg.cols, GreyImg.rows);
+                    PI.ComputeGradients(
+                        GradientPixels.get(), SegmentPixels.get(), GaussianImg.data, GreyImg.cols, GreyImg.rows);
 
                     /*
                     SaveGradientsToFile(GradientPixels,
