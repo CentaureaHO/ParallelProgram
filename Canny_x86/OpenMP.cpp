@@ -1,11 +1,22 @@
 #include <cstring>
 #include <immintrin.h>
+#include <iostream>
 #include <math.h>
 #include <algorithm>
 #include <omp.h>
 #include "AVX_Lib.h"
-#include "GaussDef.h"
+#include "ParmsDef.h"
 #include "OpenMP.h"
+
+OpenMP::OpenMP(unsigned int TN) : ThreadNum(static_cast<int>(TN)) { omp_set_num_threads(ThreadNum); }
+
+OpenMP::~OpenMP() {}
+
+OpenMP& OpenMP::GetInstance(unsigned int TN)
+{
+    static OpenMP Instance(TN);
+    return Instance;
+}
 
 void OpenMP::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height)
 {
@@ -172,3 +183,11 @@ void OpenMP::ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8_
         }
     }
 }
+
+void OpenMP::ReduceNonMaximum(float* Magnitudes, float* Gradients, uint8_t* Direction, int Width, int Height) {}
+
+void OpenMP::PerformDoubleThresholding(
+    uint8_t* EdgedImg, float* Magnitudes, int HighThre, int LowThre, int Width, int Height)
+{}
+
+void OpenMP::PerformEdgeHysteresis(uint8_t* EdgedImg, uint8_t* InitialEdges, int Width, int Height) {}

@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <vector>
 #include "AVX_Lib.h"
-#include "GaussDef.h"
+#include "ParmsDef.h"
 #include "PThread.h"
 #include "ThreadPool.h"
 
@@ -270,6 +270,14 @@ void PThread::ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8
     }
 }
 
+void PThread::ReduceNonMaximum(float* Magnitudes, float* Gradients, uint8_t* Direction, int Width, int Height) {}
+
+void PThread::PerformDoubleThresholding(
+    uint8_t* EdgedImg, float* Magnitudes, int HighThre, int LowThre, int Width, int Height)
+{}
+
+void PThread::PerformEdgeHysteresis(uint8_t* EdgedImg, uint8_t* InitialEdges, int Width, int Height) {}
+
 // 以下为使用线程池的版本，减少因线程创建和销毁带来的开销
 
 PThreadWithPool::PThreadWithPool(unsigned int TN) : Pool(TN), ThreadNum(static_cast<int>(TN)) {}
@@ -494,3 +502,12 @@ void PThreadWithPool::ComputeGradients(
 
     Pool.Sync();
 }
+
+void PThreadWithPool::ReduceNonMaximum(float* Magnitudes, float* Gradients, uint8_t* Direction, int Width, int Height)
+{}
+
+void PThreadWithPool::PerformDoubleThresholding(
+    uint8_t* EdgedImg, float* Magnitudes, int HighThre, int LowThre, int Width, int Height)
+{}
+
+void PThreadWithPool::PerformEdgeHysteresis(uint8_t* EdgedImg, uint8_t* InitialEdges, int Width, int Height) {}

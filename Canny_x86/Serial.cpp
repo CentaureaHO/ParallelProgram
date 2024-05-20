@@ -1,15 +1,22 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
-#include "GaussDef.h"
+#include "ParmsDef.h"
 #include "Serial.h"
 
-const int KernelSize = 3;
+Serial::Serial() {}
+Serial::~Serial() {}
+
+Serial& Serial::GetInstance()
+{
+    static Serial instance;
+    return instance;
+}
 
 void Serial::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height)
 {
-    const int Offset  = 1;
-    uint8_t*  TempImg = new uint8_t[Width * Height];
+    static const int Offset  = 1;
+    uint8_t*         TempImg = new uint8_t[Width * Height];
 
     for (int y = 0; y < Height; y++)
     {
@@ -52,9 +59,9 @@ void Serial::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Wid
 
 void Serial::ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8_t* BlurredImage, int Width, int Height)
 {
-    const int8_t Gx[]   = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
-    const int8_t Gy[]   = {1, 2, 1, 0, 0, 0, -1, -2, -1};
-    int          Offset = 1;
+    static const int8_t Gx[]   = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
+    static const int8_t Gy[]   = {1, 2, 1, 0, 0, 0, -1, -2, -1};
+    static int          Offset = 1;
     for (int x = Offset; x < Width - Offset; x++)
     {
         for (int y = Offset; y < Height - Offset; y++)

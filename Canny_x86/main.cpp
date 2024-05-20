@@ -49,11 +49,8 @@ void SaveGradientsToFile(const Vec<float>& Grads, const Vec<uint8_t>& Dirs, cons
 
 int main()
 {
-    int n         = 0;
-    int UseThread = 9;
-
-    std::cout << "Max thread nums: " << std::thread::hardware_concurrency() << ".\n";
-    Vec<std::tuple<Str, std::pair<int, int>, double>> ImageStatistics;
+    int n         = 1;
+    int UseThread = 16;
 
     Str       ImgPath      = "../Images/";
     Str       OutputPath   = "../Output/";
@@ -63,18 +60,18 @@ int main()
     const int LowThre      = 30;
     const int HighThre     = 90;
 
-    PThread&         P  = PThread::GetInstance();
-    PThreadWithPool& PI = PThreadWithPool::GetInstance();
-    Canny*           PC = &P;
+    Serial&          Serial_Ins   = Serial::GetInstance();
+    SIMD::AVX::A512& SIMD_Ins     = SIMD::AVX::A512::GetInstance();
+    PThread&         PThread_Ins  = PThread::GetInstance(UseThread);
+    PThreadWithPool& PThreadP_Ins = PThreadWithPool::GetInstance(UseThread);
+    OpenMP&          OMP_Ins      = OpenMP::GetInstance(UseThread);
 
-    std::function<void(uint8_t*, const uint8_t*, int, int)> Gauss = OpenMP::PerformGaussianBlur;
-    // std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = PThread::ComputeGradients;
-    std::function<void(float*, float*, uint8_t*, int, int)>   ReduNM = Serial::ReduceNonMaximum;
-    std::function<void(uint8_t*, float*, int, int, int, int)> DbThre = Serial::PerformDoubleThresholding;
-    std::function<void(uint8_t*, uint8_t*, int, int)>         EdgeHy = Serial::PerformEdgeHysteresis;
+    Canny* Gauss = &OMP_Ins;
+    Canny* Grad  = &OMP_Ins;
+    Canny* Redu  = &Serial_Ins;
+    Canny* DouTh = &Serial_Ins;
+    Canny* Edged = &Serial_Ins;
 
-    omp_set_num_threads(16);
-    n = 1;
     for (int th = 1; th >= 1; --th)
     {
         UseThread = th;
@@ -108,21 +105,20 @@ int main()
                 auto            DoubleThrePixels = MakeAlignedArray<uint8_t>(GreyImg.total(), 64);
                 std::vector<ns> Durations;
 
-                // 以下部分为预运行，用于给OpenMP创建线程池来避免其初始化对测试数据的影响
+                // 初始化omp线程池
                 for (int i = 0; i < 10; ++i)
-                    OpenMP::PerformGaussianBlur(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
+                    OMP_Ins.PerformGaussianBlur(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
 
                 // 以下部分为实际测试
                 for (int i = 0; i < n; ++i)
                 {
+
+                    Gauss->PerformGaussianBlur(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
+
                     auto Start = hrClk::now();
-                    PC->PerformGaussianBlur(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
-                    // Gauss(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
-                    auto End = hrClk::now();
-
-                    PI.ComputeGradients(
+                    Grad->ComputeGradients(
                         GradientPixels.get(), SegmentPixels.get(), GaussianImg.data, GreyImg.cols, GreyImg.rows);
-
+                    auto End = hrClk::now();
                     /*
                     SaveGradientsToFile(GradientPixels,
                         SegmentPixels,
@@ -130,11 +126,13 @@ int main()
                         GradientPath + "Direction/" + Entry.path().stem().string() + ".bin");
                     */
 
-                    ReduNM(MatrixPixels.get(), GradientPixels.get(), SegmentPixels.get(), GreyImg.cols, GreyImg.rows);
+                    Redu->ReduceNonMaximum(
+                        MatrixPixels.get(), GradientPixels.get(), SegmentPixels.get(), GreyImg.cols, GreyImg.rows);
 
-                    DbThre(DoubleThrePixels.get(), MatrixPixels.get(), HighThre, LowThre, GreyImg.cols, GreyImg.rows);
+                    DouTh->PerformDoubleThresholding(
+                        DoubleThrePixels.get(), MatrixPixels.get(), HighThre, LowThre, GreyImg.cols, GreyImg.rows);
 
-                    EdgeHy(EdgedImg.data, DoubleThrePixels.get(), GreyImg.cols, GreyImg.rows);
+                    Edged->PerformEdgeHysteresis(EdgedImg.data, DoubleThrePixels.get(), GreyImg.cols, GreyImg.rows);
 
                     Durations.push_back(std::chrono::duration_cast<ns>(End - Start));
                 }
