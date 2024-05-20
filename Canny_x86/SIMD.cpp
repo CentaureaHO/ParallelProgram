@@ -6,8 +6,6 @@
 #include "GaussDef.h"
 #include "SIMD.h"
 
-const int KernelRadius = 1;
-
 void SIMD::SSE::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height)
 {
     float* Tmp = static_cast<float*>(_mm_malloc(Width * Height * sizeof(float), 16));

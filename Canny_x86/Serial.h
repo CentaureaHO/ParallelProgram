@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "CannyBase.h"
 
 namespace Serial
 {

@@ -7,8 +7,6 @@
 #include "GaussDef.h"
 #include "OpenMP.h"
 
-const int KernelRadius = 1;
-
 void OpenMP::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height)
 {
     int    PaddedWidth = (Width + 15) & ~15;

@@ -7,6 +7,7 @@
 #include <memory>
 #include "Solutions.h"
 #include <omp.h>
+#include "CannyBase.h"
 
 namespace fs = std::filesystem;
 using ns     = std::chrono::nanoseconds;
@@ -62,7 +63,9 @@ int main()
     const int LowThre      = 30;
     const int HighThre     = 90;
 
-    PThread& PI = PThread::GetInstabce();
+    PThread&         P  = PThread::GetInstance();
+    PThreadWithPool& PI = PThreadWithPool::GetInstance();
+    Canny*           PC = &P;
 
     std::function<void(uint8_t*, const uint8_t*, int, int)> Gauss = OpenMP::PerformGaussianBlur;
     // std::function<void(float*, uint8_t*, const uint8_t*, int, int)> Grad   = PThread::ComputeGradients;
@@ -113,7 +116,7 @@ int main()
                 for (int i = 0; i < n; ++i)
                 {
                     auto Start = hrClk::now();
-                    PI.PerformGaussianBlur(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
+                    PC->PerformGaussianBlur(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
                     // Gauss(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
                     auto End = hrClk::now();
 
