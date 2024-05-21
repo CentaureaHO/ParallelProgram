@@ -227,11 +227,60 @@ namespace SIMD
 
         void A512::ReduceNonMaximum(float* Magnitudes, float* Gradients, uint8_t* Direction, int Width, int Height)
         {
-            //
             memcpy(Magnitudes, Gradients, Width * Height * sizeof(float));
-            for (int x = 1; x < Width - 1; x++)
+
+            __m512i Dir1 = _mm512_set1_epi8(1);
+            __m512i Dir2 = _mm512_set1_epi8(2);
+            __m512i Dir3 = _mm512_set1_epi8(3);
+            __m512i Dir4 = _mm512_set1_epi8(4);
+
+            for (int y = 1; y < Height - 1; y++)
             {
-                for (int y = 1; y < Height - 1; y++)
+                int x = 1;
+                for (; x <= Width - 17; x += 16)
+                {
+                    int Pos = x + (y * Width);
+
+                    __m512i Directions = _mm512_loadu_si512((__m512i*)&Direction[Pos]);
+                    __m512  Grads      = _mm512_loadu_ps(&Gradients[Pos]);
+                    __m512  Magn       = Grads;
+
+                    __mmask16 Mask1 = _mm512_cmpeq_epi8_mask(Directions, Dir1);
+                    __mmask16 Mask2 = _mm512_cmpeq_epi8_mask(Directions, Dir2);
+                    __mmask16 Mask3 = _mm512_cmpeq_epi8_mask(Directions, Dir3);
+                    __mmask16 Mask4 = _mm512_cmpeq_epi8_mask(Directions, Dir4);
+
+                    __m512 GradsLeft        = _mm512_loadu_ps(&Gradients[Pos - 1]);
+                    __m512 GradsRight       = _mm512_loadu_ps(&Gradients[Pos + 1]);
+                    __m512 GradsTopLeft     = _mm512_loadu_ps(&Gradients[Pos - (Width + 1)]);
+                    __m512 GradsTopRight    = _mm512_loadu_ps(&Gradients[Pos + (Width + 1)]);
+                    __m512 GradsTop         = _mm512_loadu_ps(&Gradients[Pos - Width]);
+                    __m512 GradsBottom      = _mm512_loadu_ps(&Gradients[Pos + Width]);
+                    __m512 GradsBottomLeft  = _mm512_loadu_ps(&Gradients[Pos - (Width - 1)]);
+                    __m512 GradsBottomRight = _mm512_loadu_ps(&Gradients[Pos + (Width - 1)]);
+
+                    __mmask16 MaskDir1 = _mm512_kor(_mm512_cmp_ps_mask(GradsLeft, Grads, _CMP_GE_OQ),
+                        _mm512_cmp_ps_mask(GradsRight, Grads, _CMP_GT_OQ));
+                    __mmask16 MaskDir2 = _mm512_kor(_mm512_cmp_ps_mask(GradsTopLeft, Grads, _CMP_GE_OQ),
+                        _mm512_cmp_ps_mask(GradsBottomRight, Grads, _CMP_GT_OQ));
+                    __mmask16 MaskDir3 = _mm512_kor(_mm512_cmp_ps_mask(GradsTop, Grads, _CMP_GE_OQ),
+                        _mm512_cmp_ps_mask(GradsBottom, Grads, _CMP_GT_OQ));
+                    __mmask16 MaskDir4 = _mm512_kor(_mm512_cmp_ps_mask(GradsTopRight, Grads, _CMP_GE_OQ),
+                        _mm512_cmp_ps_mask(GradsBottomLeft, Grads, _CMP_GT_OQ));
+
+                    __mmask16 FinalMask1 = _mm512_kand(Mask1, MaskDir1);
+                    __mmask16 FinalMask2 = _mm512_kand(Mask2, MaskDir2);
+                    __mmask16 FinalMask3 = _mm512_kand(Mask3, MaskDir3);
+                    __mmask16 FinalMask4 = _mm512_kand(Mask4, MaskDir4);
+
+                    __mmask16 FinalMask =
+                        _mm512_kor(_mm512_kor(FinalMask1, FinalMask2), _mm512_kor(FinalMask3, FinalMask4));
+
+                    Magn = _mm512_mask_blend_ps(FinalMask, Magn, _mm512_set1_ps(0.0f));
+                    _mm512_storeu_ps(&Magnitudes[Pos], Magn);
+                }
+
+                for (; x < Width - 1; x++)
                 {
                     int Pos = x + (y * Width);
                     switch (Direction[Pos])

@@ -33,7 +33,7 @@ int main()
     OpenMP&          OMP_Ins      = OpenMP::GetInstance(UseThread);
 
     Canny* Gauss = &SIMD_Ins;
-    Canny* Grad  = &OMP_Ins;
+    Canny* Grad  = &SIMD_Ins;
     Canny* Redu  = &SIMD_Ins;
     Canny* DouTh = &SIMD_Ins;
     Canny* Edged = &SIMD_Ins;
@@ -79,15 +79,13 @@ int main()
                 Gauss->PerformGaussianBlur(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
 
                 Grad->ComputeGradients(GradientPixels, SegmentPixels, GaussianImg.data, GreyImg.cols, GreyImg.rows);
-
+                auto Start = hrClk::now();
                 Redu->ReduceNonMaximum(MatrixPixels, GradientPixels, SegmentPixels, GreyImg.cols, GreyImg.rows);
-
+                auto End = hrClk::now();
                 DouTh->PerformDoubleThresholding(
                     DoubleThrePixels, MatrixPixels, HighThre, LowThre, GreyImg.cols, GreyImg.rows);
 
-                auto Start = hrClk::now();
                 Edged->PerformEdgeHysteresis(EdgedImg.data, DoubleThrePixels, GreyImg.cols, GreyImg.rows);
-                auto End = hrClk::now();
 
                 Durations.push_back(std::chrono::duration_cast<ns>(End - Start));
             }
