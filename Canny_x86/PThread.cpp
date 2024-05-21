@@ -145,10 +145,19 @@ void PThread::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Wi
     for (auto& t : Threads) t.join();
 
     auto FinalizeOutput = [&](int start, int end) {
-        for (int i = start; i < end; ++i)
+        __m512 zero          = _mm512_set1_ps(0.0f);
+        __m512 two_five_five = _mm512_set1_ps(255.0f);
+        for (int i = start; i <= end - 16; i += 16)
         {
-            Output[i] = static_cast<uint8_t>(std::min(std::max(0.0f, Temp[i]), 255.0f));
+            __m512 Pixels      = _mm512_load_ps(Temp + i);
+            Pixels             = _mm512_max_ps(zero, _mm512_min_ps(Pixels, two_five_five));
+            __m512i Pixels_i32 = _mm512_cvtps_epi32(Pixels);
+            __m256i Pixels_i16 = _mm512_cvtepi32_epi16(Pixels_i32);
+            __m128i Pixels_i8  = _mm256_cvtepi16_epi8(Pixels_i16);
+            _mm_store_si128((__m128i*)(Output + i), Pixels_i8);
         }
+        for (int i = end - (end % 16); i < end; i++)
+            Output[i] = static_cast<uint8_t>(std::min(std::max(0.0f, Temp[i]), 255.0f));
     };
 
     int PixelsPerThread = (Width * Height + ThreadNum - 1) / ThreadNum;
@@ -179,14 +188,11 @@ void PThread::ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8
         const int8_t*  Gx;
         const int8_t*  Gy;
     };
+    int                 RPT  = Height / ThreadNum;
+    static const int8_t Gx[] = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
+    static const int8_t Gy[] = {1, 2, 1, 0, 0, 0, -1, -2, -1};
 
-    static const int8_t Gx[]   = {-1, 0, 1, -2, 0, 2, -1, 0, 1};
-    static const int8_t Gy[]   = {1, 2, 1, 0, 0, 0, -1, -2, -1};
-    static const int    Offset = 1;
-
-    int RPT = Height / ThreadNum;
-
-    std::vector<std::thread> threads;
+    std::vector<std::thread> Threads;
 
     for (int i = 0; i < ThreadNum; i++)
     {
@@ -196,9 +202,12 @@ void PThread::ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8
         ThreadData* ThData = new ThreadData{Gradients, GradDires, BlurredImage, Width, Height, RFrom, REnd, Gx, Gy};
 
         auto ThreadFunc = [](ThreadData* Data) {
+            const int Offset = 1;
+
             for (int y = Data->RFrom; y < Data->REnd; y++)
             {
-                for (int x = Offset; x < Data->Width - Offset; x += 16)
+                int x = Offset;
+                for (; x <= Data->Width - 16; x += 16)
                 {
                     __m512 GradX = _mm512_setzero_ps();
                     __m512 GradY = _mm512_setzero_ps();
@@ -256,15 +265,46 @@ void PThread::ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8
                     _mm_storeu_si128(
                         (__m128i*)(Data->GradDires + x + y * Data->Width), _mm512_cvtsepi32_epi8(Directions));
                 }
+
+                if (x < Data->Width - Offset)
+                {
+                    for (; x < Data->Width - Offset; x++)
+                    {
+                        float GradX = 0.0f;
+                        float GradY = 0.0f;
+                        for (int ky = -Offset; ky <= Offset; ky++)
+                        {
+                            for (int kx = -Offset; kx <= Offset; kx++)
+                            {
+                                int KernelIdx = (ky + Offset) * 3 + (kx + Offset);
+                                int PixelIdx  = x + kx + (y + ky) * Data->Width;
+                                GradX += Data->BlurredImage[PixelIdx] * Data->Gx[KernelIdx];
+                                GradY += Data->BlurredImage[PixelIdx] * Data->Gy[KernelIdx];
+                            }
+                        }
+                        Data->Gradients[x + y * Data->Width] = std::sqrt(GradX * GradX + GradY * GradY);
+                        float   Degree                       = std::atan2(GradY, GradX) * (360.0 / (2.0 * M_PI));
+                        uint8_t Direction                    = 0;
+                        if ((Degree <= 22.5 && Degree > -22.5) || (Degree <= -157.5 || Degree > 157.5))
+                            Direction = 1;
+                        else if ((Degree > 22.5 && Degree <= 67.5) || (Degree > -157.5 && Degree <= -112.5))
+                            Direction = 2;
+                        else if ((Degree > 67.5 && Degree <= 112.5) || (Degree > -112.5 && Degree <= -67.5))
+                            Direction = 3;
+                        else if ((Degree > 112.5 && Degree <= 157.5) || (Degree > -67.5 && Degree <= -22.5))
+                            Direction = 4;
+                        Data->GradDires[x + y * Data->Width] = Direction;
+                    }
+                }
             }
 
             delete Data;
         };
 
-        threads.emplace_back(ThreadFunc, ThData);
+        Threads.emplace_back(ThreadFunc, ThData);
     }
 
-    for (auto& t : threads)
+    for (auto& t : Threads)
     {
         if (t.joinable()) t.join();
     }
@@ -405,7 +445,19 @@ void PThreadWithPool::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg
     Pool.Sync();
 
     auto FinalizeOutput = [&](int start, int end) {
-        for (int i = start; i < end; ++i) Output[i] = static_cast<uint8_t>(std::min(std::max(0.0f, Temp[i]), 255.0f));
+        __m512 zero          = _mm512_set1_ps(0.0f);
+        __m512 two_five_five = _mm512_set1_ps(255.0f);
+        for (int i = start; i <= end - 16; i += 16)
+        {
+            __m512 Pixels      = _mm512_load_ps(Temp + i);
+            Pixels             = _mm512_max_ps(zero, _mm512_min_ps(Pixels, two_five_five));
+            __m512i Pixels_i32 = _mm512_cvtps_epi32(Pixels);
+            __m256i Pixels_i16 = _mm512_cvtepi32_epi16(Pixels_i32);
+            __m128i Pixels_i8  = _mm256_cvtepi16_epi8(Pixels_i16);
+            _mm_store_si128((__m128i*)(Output + i), Pixels_i8);
+        }
+        for (int i = end - (end % 16); i < end; i++)
+            Output[i] = static_cast<uint8_t>(std::min(std::max(0.0f, Temp[i]), 255.0f));
     };
 
     int PixelsPerThread = (Width * Height + ThreadNum - 1) / ThreadNum;
@@ -437,7 +489,8 @@ void PThreadWithPool::ComputeGradients(
         auto ThreadFunc = [Gradients, GradDires, BlurredImage, Width, Height, RFrom, REnd, Gx, Gy]() {
             for (int y = RFrom; y < REnd; y++)
             {
-                for (int x = Offset; x < Width - Offset; x += 16)
+                int x = Offset;
+                for (; x <= Width - 16; x += 16)
                 {
                     __m512 GradX = _mm512_setzero_ps();
                     __m512 GradY = _mm512_setzero_ps();
@@ -493,6 +546,33 @@ void PThreadWithPool::ComputeGradients(
                     Directions = _mm512_mask_add_epi32(Directions, DireMask4, Directions, _mm512_set1_epi32(4));
 
                     _mm_storeu_si128((__m128i*)(GradDires + x + y * Width), _mm512_cvtsepi32_epi8(Directions));
+                }
+                for (; x < Width - Offset; x++)
+                {
+                    float GradX = 0.0f;
+                    float GradY = 0.0f;
+                    for (int ky = -Offset; ky <= Offset; ky++)
+                    {
+                        for (int kx = -Offset; kx <= Offset; kx++)
+                        {
+                            int KernelIdx = (ky + Offset) * 3 + (kx + Offset);
+                            int PixelIdx  = x + kx + (y + ky) * Width;
+                            GradX += BlurredImage[PixelIdx] * Gx[KernelIdx];
+                            GradY += BlurredImage[PixelIdx] * Gy[KernelIdx];
+                        }
+                    }
+                    Gradients[x + y * Width] = std::sqrt(GradX * GradX + GradY * GradY);
+                    float   Degree           = std::atan2(GradY, GradX) * (360.0 / (2.0 * M_PI));
+                    uint8_t Direction        = 0;
+                    if ((Degree <= 22.5 && Degree > -22.5) || (Degree <= -157.5 || Degree > 157.5))
+                        Direction = 1;
+                    else if ((Degree > 22.5 && Degree <= 67.5) || (Degree > -157.5 && Degree <= -112.5))
+                        Direction = 2;
+                    else if ((Degree > 67.5 && Degree <= 112.5) || (Degree > -112.5 && Degree <= -67.5))
+                        Direction = 3;
+                    else if ((Degree > 112.5 and Degree <= 157.5) || (Degree > -67.5 and Degree <= -22.5))
+                        Direction = 4;
+                    GradDires[x + y * Width] = Direction;
                 }
             }
         };
