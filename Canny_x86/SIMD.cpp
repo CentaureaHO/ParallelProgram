@@ -46,25 +46,22 @@ namespace SIMD
                     __m512 InvKernelSum = _mm512_div_ps(_mm512_set1_ps(1.0f), KernelSum);
                     _mm512_store_ps(Tmp + y * Width + x, _mm512_mul_ps(PixelVal, InvKernelSum));
                 }
-                if (x < Width)
+                for (; x < Width; x++)
                 {
-                    for (; x < Width; x++)
+                    float PixelVal  = 0.0f;
+                    float KernelSum = 0.0f;
+                    for (int i = -KernelRadius; i <= KernelRadius; i++)
                     {
-                        float PixelVal  = 0.0f;
-                        float KernelSum = 0.0f;
-                        for (int i = -KernelRadius; i <= KernelRadius; i++)
+                        int nx = x + i;
+                        if (nx >= 0 && nx < Width)
                         {
-                            int nx = x + i;
-                            if (nx >= 0 && nx < Width)
-                            {
-                                float ImgPixel  = static_cast<float>(OriImg[y * Width + nx]);
-                                float KernelVal = GaussianKernel_1D[KernelRadius + i];
-                                PixelVal += ImgPixel * KernelVal;
-                                KernelSum += KernelVal;
-                            }
+                            float ImgPixel  = static_cast<float>(OriImg[y * Width + nx]);
+                            float KernelVal = GaussianKernel_1D[KernelRadius + i];
+                            PixelVal += ImgPixel * KernelVal;
+                            KernelSum += KernelVal;
                         }
-                        Tmp[y * Width + x] = PixelVal / KernelSum;
                     }
+                    Tmp[y * Width + x] = PixelVal / KernelSum;
                 }
             }
 
@@ -89,25 +86,22 @@ namespace SIMD
                     __m512 InvKernelSum = _mm512_div_ps(_mm512_set1_ps(1.0f), KernelSum);
                     _mm512_store_ps(Tmp + y * Width + x, _mm512_mul_ps(PixelVal, InvKernelSum));
                 }
-                if (x < Width)
+                for (; x < Width; x++)
                 {
-                    for (; x < Width; x++)
+                    float PixelVal  = 0.0f;
+                    float KernelSum = 0.0f;
+                    for (int j = -KernelRadius; j <= KernelRadius; j++)
                     {
-                        float PixelVal  = 0.0f;
-                        float KernelSum = 0.0f;
-                        for (int j = -KernelRadius; j <= KernelRadius; j++)
+                        int ny = y + j;
+                        if (ny >= 0 && ny < Height)
                         {
-                            int ny = y + j;
-                            if (ny >= 0 && ny < Height)
-                            {
-                                float ImgPixel  = Tmp[ny * Width + x];
-                                float KernelVal = GaussianKernel_1D[KernelRadius + j];
-                                PixelVal += ImgPixel * KernelVal;
-                                KernelSum += KernelVal;
-                            }
+                            float ImgPixel  = Tmp[ny * Width + x];
+                            float KernelVal = GaussianKernel_1D[KernelRadius + j];
+                            PixelVal += ImgPixel * KernelVal;
+                            KernelSum += KernelVal;
                         }
-                        Tmp[y * Width + x] = PixelVal / KernelSum;
                     }
+                    Tmp[y * Width + x] = PixelVal / KernelSum;
                 }
             }
 
@@ -137,7 +131,36 @@ namespace SIMD
             for (int y = Offset; y < Height - Offset; y++)
             {
                 int x = Offset;
-                for (; x <= Width - 16; x += 16)
+                for (; x < Offset + (16 - Offset % 16); ++x)
+                {
+                    if (x >= Width - Offset) break;
+                    float GradX = 0.0f;
+                    float GradY = 0.0f;
+                    for (int ky = -Offset; ky <= Offset; ky++)
+                    {
+                        for (int kx = -Offset; kx <= Offset; kx++)
+                        {
+                            int KernelIdx = (ky + Offset) * 3 + (kx + Offset);
+                            int PixelIdx  = x + kx + (y + ky) * Width;
+                            GradX += BlurredImage[PixelIdx] * Gx[KernelIdx];
+                            GradY += BlurredImage[PixelIdx] * Gy[KernelIdx];
+                        }
+                    }
+                    Gradients[x + y * Width] = std::sqrt(GradX * GradX + GradY * GradY);
+                    float   Degree           = std::atan2(GradY, GradX) * (360.0 / (2.0 * M_PI));
+                    uint8_t Direction        = 0;
+                    if ((Degree <= 22.5 && Degree > -22.5) || (Degree <= -157.5 || Degree > 157.5))
+                        Direction = 1;
+                    else if ((Degree > 22.5 && Degree <= 67.5) || (Degree > -157.5 && Degree <= -112.5))
+                        Direction = 2;
+                    else if ((Degree > 67.5 && Degree <= 112.5) || (Degree > -112.5 && Degree <= -67.5))
+                        Direction = 3;
+                    else if ((Degree > 112.5 && Degree <= 157.5) || (Degree > -67.5 && Degree <= -22.5))
+                        Direction = 4;
+                    GradDires[x + y * Width] = Direction;
+                }
+
+                for (; x <= Width - 16 - Offset; x += 16)
                 {
                     __m512 GradX = _mm512_setzero_ps();
                     __m512 GradY = _mm512_setzero_ps();
@@ -149,24 +172,21 @@ namespace SIMD
                             int KernelIdx = (ky + Offset) * 3 + (kx + Offset);
                             int PixelIdx  = x + kx + (y + ky) * Width;
 
-                            if (x + 15 < Width)
-                            {
-                                __m512i PixelValues =
-                                    _mm512_cvtepu8_epi32(_mm_loadu_si128((const __m128i*)(BlurredImage + PixelIdx)));
-                                __m512i GxValue = _mm512_set1_epi32(Gx[KernelIdx]);
-                                __m512i GyValue = _mm512_set1_epi32(Gy[KernelIdx]);
+                            __m512i PixelValues =
+                                _mm512_cvtepu8_epi32(_mm_loadu_si128((const __m128i*)(BlurredImage + PixelIdx)));
+                            __m512i GxValue = _mm512_set1_epi32(Gx[KernelIdx]);
+                            __m512i GyValue = _mm512_set1_epi32(Gy[KernelIdx]);
 
-                                GradX = _mm512_add_ps(
-                                    GradX, _mm512_mul_ps(_mm512_cvtepi32_ps(PixelValues), _mm512_cvtepi32_ps(GxValue)));
-                                GradY = _mm512_add_ps(
-                                    GradY, _mm512_mul_ps(_mm512_cvtepi32_ps(PixelValues), _mm512_cvtepi32_ps(GyValue)));
-                            }
+                            GradX = _mm512_add_ps(
+                                GradX, _mm512_mul_ps(_mm512_cvtepi32_ps(PixelValues), _mm512_cvtepi32_ps(GxValue)));
+                            GradY = _mm512_add_ps(
+                                GradY, _mm512_mul_ps(_mm512_cvtepi32_ps(PixelValues), _mm512_cvtepi32_ps(GyValue)));
                         }
                     }
 
                     __m512 Magnitude =
                         _mm512_sqrt_ps(_mm512_add_ps(_mm512_mul_ps(GradX, GradX), _mm512_mul_ps(GradY, GradY)));
-                    _mm512_storeu_ps(Gradients + x + y * Width, Magnitude);
+                    _mm512_store_ps(Gradients + x + y * Width, Magnitude);
 
                     __m512 Degrees = _mm512_arctan2(GradY, GradX) * _mm512_set1_ps(360.0 / (2.0 * M_PI));
 
@@ -192,7 +212,7 @@ namespace SIMD
                     Directions = _mm512_mask_add_epi32(Directions, DireMask3, Directions, _mm512_set1_epi32(3));
                     Directions = _mm512_mask_add_epi32(Directions, DireMask4, Directions, _mm512_set1_epi32(4));
 
-                    _mm_storeu_si128((__m128i*)(GradDires + x + y * Width), _mm512_cvtsepi32_epi8(Directions));
+                    _mm_store_si128((__m128i*)(GradDires + x + y * Width), _mm512_cvtsepi32_epi8(Directions));
                 }
 
                 for (; x < Width - Offset; x++)

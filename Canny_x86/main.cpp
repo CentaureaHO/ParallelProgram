@@ -33,13 +33,14 @@ int main()
     OpenMP&          OMP_Ins      = OpenMP::GetInstance(UseThread);
 
     Canny* Gauss = &SIMD_Ins;
-    Canny* Grad  = &SIMD_Ins;
+    Canny* Grad  = &PThreadP_Ins;
     Canny* Redu  = &SIMD_Ins;
-    Canny* DouTh = &SIMD_Ins;
-    Canny* Edged = &SIMD_Ins;
+    Canny* DouTh = &PThreadP_Ins;
+    Canny* Edged = &PThreadP_Ins;
 
     std::ofstream CSV("Record.csv");
-    CSV << "Image Name,Width x Height,Average Processing Time (ns)\n";
+    CSV << "Image Name,Width x Height,Gaussian Time (ns),Gradient Time (ns),Reduce Time (ns),Double Threshold Time "
+           "(ns),Edge Hysteresis Time (ns),Total Processing Time (ns)\n";
     for (const auto& Entry : fs::directory_iterator(ImgPath))
     {
         if (Entry.path().extension() == ".jpg")
@@ -51,56 +52,88 @@ int main()
                 continue;
             }
 
-            cv::Mat GreyImg, GaussianImg, EdgedImg;
+            cv::Mat GreyImg, EdgedImg;
             cv::cvtColor(OriImg, GreyImg, cv::COLOR_BGR2GRAY);
             int OriginalWidth  = GreyImg.cols;
             int OriginalHeight = GreyImg.rows;
             int TmpWidth       = GreyImg.cols < 16 ? 16 : GreyImg.cols / 16 * 16;
             int TmpHeight      = GreyImg.rows < 16 ? 16 : GreyImg.rows / 16 * 16;
             cv::resize(GreyImg, GreyImg, cv::Size(TmpWidth, TmpHeight));
-            GaussianImg.create(GreyImg.size(), CV_8UC1);
             EdgedImg.create(GreyImg.size(), CV_8UC1);
-            cv::resize(GaussianImg, GaussianImg, cv::Size(TmpWidth, TmpHeight));
 
-            float*          GradientPixels   = (float*)_mm_malloc(TmpWidth * TmpHeight * sizeof(float), 64);
-            float*          MatrixPixels     = (float*)_mm_malloc(TmpWidth * TmpHeight * sizeof(float), 64);
-            uint8_t*        SegmentPixels    = (uint8_t*)_mm_malloc(TmpWidth * TmpHeight * sizeof(uint8_t), 64);
-            uint8_t*        DoubleThrePixels = (uint8_t*)_mm_malloc(TmpWidth * TmpHeight * sizeof(uint8_t), 64);
-            std::vector<ns> Durations;
+            uint8_t* GreyImageArray     = (uint8_t*)_mm_malloc(TmpWidth * TmpHeight * sizeof(uint8_t), 64);
+            uint8_t* GaussianImageArray = (uint8_t*)_mm_malloc(TmpWidth * TmpHeight * sizeof(uint8_t), 64);
+            float*   GradientPixels     = (float*)_mm_malloc(TmpWidth * TmpHeight * sizeof(float), 64);
+            float*   MatrixPixels       = (float*)_mm_malloc(TmpWidth * TmpHeight * sizeof(float), 64);
+            uint8_t* SegmentPixels      = (uint8_t*)_mm_malloc(TmpWidth * TmpHeight * sizeof(uint8_t), 64);
+            uint8_t* DoubleThrePixels   = (uint8_t*)_mm_malloc(TmpWidth * TmpHeight * sizeof(uint8_t), 64);
+            uint8_t* EdgeArray          = (uint8_t*)_mm_malloc(TmpWidth * TmpHeight * sizeof(uint8_t), 64);
 
-            // 初始化omp线程池
+            memcpy(GreyImageArray, GreyImg.data, TmpWidth * TmpHeight * sizeof(uint8_t));
+
             for (int i = 0; i < 10; ++i)
-                OMP_Ins.PerformGaussianBlur(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
+                OMP_Ins.PerformGaussianBlur(GaussianImageArray, GreyImageArray, GreyImg.cols, GreyImg.rows);
 
-            // 以下部分为实际测试
+            ns TotalGaussianTime        = ns(0);
+            ns TotalGradientTime        = ns(0);
+            ns TotalReduceTime          = ns(0);
+            ns TotalDoubleThresholdTime = ns(0);
+            ns TotalEdgeHysteresisTime  = ns(0);
+            ns TotalProcessingTime      = ns(0);
+
             for (int i = 0; i < n; ++i)
             {
+                auto start = hrClk::now();
+                Gauss->PerformGaussianBlur(GaussianImageArray, GreyImageArray, GreyImg.cols, GreyImg.rows);
+                auto end = hrClk::now();
+                TotalGaussianTime += std::chrono::duration_cast<ns>(end - start);
 
-                Gauss->PerformGaussianBlur(GaussianImg.data, GreyImg.data, GreyImg.cols, GreyImg.rows);
+                start = hrClk::now();
+                Grad->ComputeGradients(GradientPixels, SegmentPixels, GaussianImageArray, GreyImg.cols, GreyImg.rows);
+                end = hrClk::now();
+                TotalGradientTime += std::chrono::duration_cast<ns>(end - start);
 
-                Grad->ComputeGradients(GradientPixels, SegmentPixels, GaussianImg.data, GreyImg.cols, GreyImg.rows);
-                auto Start = hrClk::now();
+                start = hrClk::now();
                 Redu->ReduceNonMaximum(MatrixPixels, GradientPixels, SegmentPixels, GreyImg.cols, GreyImg.rows);
-                auto End = hrClk::now();
+                end = hrClk::now();
+                TotalReduceTime += std::chrono::duration_cast<ns>(end - start);
+
+                start = hrClk::now();
                 DouTh->PerformDoubleThresholding(
                     DoubleThrePixels, MatrixPixels, HighThre, LowThre, GreyImg.cols, GreyImg.rows);
+                end = hrClk::now();
+                TotalDoubleThresholdTime += std::chrono::duration_cast<ns>(end - start);
 
-                Edged->PerformEdgeHysteresis(EdgedImg.data, DoubleThrePixels, GreyImg.cols, GreyImg.rows);
+                start = hrClk::now();
+                Edged->PerformEdgeHysteresis(EdgeArray, DoubleThrePixels, GreyImg.cols, GreyImg.rows);
+                end = hrClk::now();
+                TotalEdgeHysteresisTime += std::chrono::duration_cast<ns>(end - start);
 
-                Durations.push_back(std::chrono::duration_cast<ns>(End - Start));
+                TotalProcessingTime += (TotalGaussianTime + TotalGradientTime + TotalReduceTime +
+                                        TotalDoubleThresholdTime + TotalEdgeHysteresisTime);
             }
-
+            memcpy(EdgedImg.data, EdgeArray, TmpWidth * TmpHeight * sizeof(uint8_t));
+            _mm_free(GreyImageArray);
+            _mm_free(GaussianImageArray);
             _mm_free(GradientPixels);
             _mm_free(MatrixPixels);
             _mm_free(SegmentPixels);
             _mm_free(DoubleThrePixels);
-            GradientPixels   = nullptr;
-            MatrixPixels     = nullptr;
-            SegmentPixels    = nullptr;
-            DoubleThrePixels = nullptr;
+            _mm_free(EdgeArray);
+            GreyImageArray     = nullptr;
+            GaussianImageArray = nullptr;
+            GradientPixels     = nullptr;
+            MatrixPixels       = nullptr;
+            SegmentPixels      = nullptr;
+            DoubleThrePixels   = nullptr;
+            EdgeArray          = nullptr;
 
-            ns AvgTime =
-                std::accumulate(Durations.begin(), Durations.end(), ns(0), [](ns a, ns b) { return a + b; }) / n;
+            ns avgGaussianTime        = TotalGaussianTime / n;
+            ns avgGradientTime        = TotalGradientTime / n;
+            ns avgReductionTime       = TotalReduceTime / n;
+            ns avgDoubleThresholdTime = TotalDoubleThresholdTime / n;
+            ns avgEdgeHysteresisTime  = TotalEdgeHysteresisTime / n;
+            ns avgTotalProcessingTime = TotalProcessingTime / n;
 
             cv::resize(EdgedImg, EdgedImg, cv::Size(OriginalWidth, OriginalHeight));
             if (!cv::imwrite(OutputPath + Entry.path().filename().string(), EdgedImg))
@@ -110,10 +143,12 @@ int main()
             else { std::cout << "Final image saved to " << OutputPath + Entry.path().filename().string() << std::endl; }
 
             std::cout << "Processed " << Entry.path().filename().string() << " (" << GreyImg.cols << "x" << GreyImg.rows
-                      << "): " << AvgTime.count() << "ns" << std::endl;
+                      << "): " << avgTotalProcessingTime.count() << "ns" << std::endl;
+
             CSV << Entry.path().filename().string() << "," << GreyImg.cols << "x" << GreyImg.rows << ","
-                << AvgTime.count() << "\n";
-            Durations.clear();
+                << avgGaussianTime.count() << "," << avgGradientTime.count() << "," << avgReductionTime.count() << ","
+                << avgDoubleThresholdTime.count() << "," << avgEdgeHysteresisTime.count() << ","
+                << avgTotalProcessingTime.count() << "\n";
         }
     }
     std::cout << "Thread " << UseThread << " done.\n\n";
