@@ -111,7 +111,7 @@ void OpenMP::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Wid
 
     __m512 zero          = _mm512_set1_ps(0.0f);
     __m512 two_five_five = _mm512_set1_ps(255.0f);
-#pragma omp parallel for
+#pragma omp parallel for schedule(guided)
     for (int i = 0; i <= Width * Height - 16; i += 16)
     {
         __m512 Pixels      = _mm512_load_ps(Tmp + i);
@@ -134,7 +134,7 @@ void OpenMP::ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8_
     static const int8_t Gy[]   = {1, 2, 1, 0, 0, 0, -1, -2, -1};
     static const int    Offset = 1;
 
-#pragma omp parallel for
+#pragma omp parallel for schedule(dynamic)
     for (int y = Offset; y < Height - Offset; y++)
     {
         int x = Offset;

@@ -20,6 +20,20 @@ int main()
 {
     int n         = 1;
     int UseThread = 16;
+    int Choice    = 0;
+    std::cout << "Choose the method to run:\n"
+              << "1. Serial\n"
+              << "2. SIMD\n"
+              << "3. PThread\n"
+              << "4. PThread with Pool\n"
+              << "5. OpenMP\n";
+    std::cin >> Choice;
+
+    std::cout << "Repeat the process how many times? ";
+    std::cin >> n;
+
+    std::cout << "How many threads to use? ";
+    std::cin >> UseThread;
 
     Str       ImgPath    = "../Images/";
     Str       OutputPath = "../Output/";
@@ -32,13 +46,65 @@ int main()
     PThreadWithPool& PThreadP_Ins = PThreadWithPool::GetInstance(UseThread);
     OpenMP&          OMP_Ins      = OpenMP::GetInstance(UseThread);
 
-    Canny* Gauss = &SIMD_Ins;
-    Canny* Grad  = &PThreadP_Ins;
-    Canny* Redu  = &SIMD_Ins;
-    Canny* DouTh = &PThreadP_Ins;
-    Canny* Edged = &PThreadP_Ins;
+    Canny* Gauss = nullptr;
+    Canny* Grad  = nullptr;
+    Canny* Redu  = nullptr;
+    Canny* DouTh = nullptr;
+    Canny* Edged = nullptr;
 
-    std::ofstream CSV("Record.csv");
+    switch (Choice)
+    {
+        case 1:
+            Gauss = &Serial_Ins;
+            Grad  = &Serial_Ins;
+            Redu  = &Serial_Ins;
+            DouTh = &Serial_Ins;
+            Edged = &Serial_Ins;
+            break;
+        case 2:
+            Gauss = &SIMD_Ins;
+            Grad  = &SIMD_Ins;
+            Redu  = &SIMD_Ins;
+            DouTh = &SIMD_Ins;
+            Edged = &SIMD_Ins;
+            break;
+        case 3:
+            Gauss = &PThread_Ins;
+            Grad  = &PThread_Ins;
+            Redu  = &PThread_Ins;
+            DouTh = &PThread_Ins;
+            Edged = &PThread_Ins;
+            break;
+        case 4:
+            Gauss = &PThreadP_Ins;
+            Grad  = &PThreadP_Ins;
+            Redu  = &PThreadP_Ins;
+            DouTh = &PThreadP_Ins;
+            Edged = &PThreadP_Ins;
+            break;
+        case 5:
+            Gauss = &OMP_Ins;
+            Grad  = &OMP_Ins;
+            Redu  = &OMP_Ins;
+            DouTh = &OMP_Ins;
+            Edged = &OMP_Ins;
+            break;
+        default: std::cerr << "Invalid choice.\n"; return 1;
+    }
+
+    std::string filename = "";
+    switch (Choice)
+    {
+        case 1: filename = "Serial"; break;
+        case 2: filename = "SIMD"; break;
+        case 3: filename = "PThread_" + std::to_string(UseThread); break;
+        case 4: filename = "PThreadPool_" + std::to_string(UseThread); break;
+        case 5: filename = "OpenMP_" + std::to_string(UseThread); break;
+    }
+
+    filename = filename + ".csv";
+
+    std::ofstream CSV(filename);
     CSV << "Image Name,Width x Height,Gaussian Time (ns),Gradient Time (ns),Reduce Time (ns),Double Threshold Time "
            "(ns),Edge Hysteresis Time (ns),Total Processing Time (ns)\n";
     for (const auto& Entry : fs::directory_iterator(ImgPath))
@@ -108,9 +174,6 @@ int main()
                 Edged->PerformEdgeHysteresis(EdgeArray, DoubleThrePixels, GreyImg.cols, GreyImg.rows);
                 end = hrClk::now();
                 TotalEdgeHysteresisTime += std::chrono::duration_cast<ns>(end - start);
-
-                TotalProcessingTime += (TotalGaussianTime + TotalGradientTime + TotalReduceTime +
-                                        TotalDoubleThresholdTime + TotalEdgeHysteresisTime);
             }
             memcpy(EdgedImg.data, EdgeArray, TmpWidth * TmpHeight * sizeof(uint8_t));
             _mm_free(GreyImageArray);
@@ -133,7 +196,8 @@ int main()
             ns avgReductionTime       = TotalReduceTime / n;
             ns avgDoubleThresholdTime = TotalDoubleThresholdTime / n;
             ns avgEdgeHysteresisTime  = TotalEdgeHysteresisTime / n;
-            ns avgTotalProcessingTime = TotalProcessingTime / n;
+            ns avgTotalProcessingTime =
+                avgGaussianTime + avgGradientTime + avgReductionTime + avgDoubleThresholdTime + avgEdgeHysteresisTime;
 
             cv::resize(EdgedImg, EdgedImg, cv::Size(OriginalWidth, OriginalHeight));
             if (!cv::imwrite(OutputPath + Entry.path().filename().string(), EdgedImg))
