@@ -26,7 +26,8 @@ int main()
               << "2. SIMD\n"
               << "3. PThread\n"
               << "4. PThread with Pool\n"
-              << "5. OpenMP\n";
+              << "5. OpenMP\n"
+              << "6. OneAPI\n";
     std::cin >> Choice;
 
     std::cout << "Repeat the process how many times? ";
@@ -45,6 +46,7 @@ int main()
     PThread&         PThread_Ins  = PThread::GetInstance(UseThread);
     PThreadWithPool& PThreadP_Ins = PThreadWithPool::GetInstance(UseThread);
     OpenMP&          OMP_Ins      = OpenMP::GetInstance(UseThread);
+    OneAPI&          OneAPI_Ins   = OneAPI::GetInstance(UseThread);
 
     Canny* Gauss = nullptr;
     Canny* Grad  = nullptr;
@@ -89,6 +91,13 @@ int main()
             DouTh = &OMP_Ins;
             Edged = &OMP_Ins;
             break;
+        case 6:
+            Gauss = &OneAPI_Ins;
+            Grad  = &OneAPI_Ins;
+            Redu  = &OneAPI_Ins;
+            DouTh = &OneAPI_Ins;;
+            Edged = &OneAPI_Ins;
+            break;
         default: std::cerr << "Invalid choice.\n"; return 1;
     }
 
@@ -100,6 +109,7 @@ int main()
         case 3: filename = "PThread_" + std::to_string(UseThread); break;
         case 4: filename = "PThreadPool_" + std::to_string(UseThread); break;
         case 5: filename = "OpenMP_" + std::to_string(UseThread); break;
+        case 6: filename = "OneAPI_" + std::to_string(UseThread); break;
     }
 
     filename = filename + ".csv";
@@ -137,8 +147,10 @@ int main()
 
             memcpy(GreyImageArray, GreyImg.data, TmpWidth * TmpHeight * sizeof(uint8_t));
 
-            for (int i = 0; i < 10; ++i)
+            for (int i = 0; i < 1; ++i)
+            {
                 OMP_Ins.PerformGaussianBlur(GaussianImageArray, GreyImageArray, GreyImg.cols, GreyImg.rows);
+            }
 
             ns TotalGaussianTime        = ns(0);
             ns TotalGradientTime        = ns(0);

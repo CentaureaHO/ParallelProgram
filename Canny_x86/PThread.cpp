@@ -23,156 +23,64 @@ PThread& PThread::GetInstance(unsigned int TN)
 
 void PThread::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg, int Width, int Height)
 {
-    int    PaddedWidth = (Width + 15) & ~15;
-    float* Temp        = (float*)_mm_malloc(PaddedWidth * Height * sizeof(float), 64);
+    struct ThreadData
+    {
+        int            From;
+        int            To;
+        int            W;
+        int            H;
+        const uint8_t* InputImg;
+        uint8_t*       OutputImg;
+    };
 
-    auto ProcessRow = [&](int startY, int endY) {
-        for (int y = startY; y < endY; ++y)
+    auto Gauss = [](void* arg) -> void* {
+        ThreadData*    data      = static_cast<ThreadData*>(arg);
+        int            start     = data->From;
+        int            end       = data->To;
+        int            width     = data->W;
+        const uint8_t* inputImg  = data->InputImg;
+        uint8_t*       OutputImg = data->OutputImg;
+
+        for (int y = start; y < end; ++y)
         {
-            int x = 0;
-            for (; x <= Width - 16; x += 16)
-            {
-                __m512 PixelVal  = _mm512_setzero_ps();
-                __m512 KernelSum = _mm512_setzero_ps();
-                for (int i = -KernelRadius; i <= KernelRadius; i++)
-                {
-                    int nx = x + i;
-                    if (nx >= 0 && nx < Width)
-                    {
-                        __m512i data      = _mm512_cvtepu8_epi32(_mm_loadu_si128((__m128i*)(OriImg + y * Width + nx)));
-                        __m512  ImgPixel  = _mm512_cvtepi32_ps(data);
-                        __m512  KernelVal = _mm512_set1_ps(GaussianKernel_1D[KernelRadius + i]);
-                        PixelVal          = _mm512_add_ps(PixelVal, _mm512_mul_ps(ImgPixel, KernelVal));
-                        KernelSum         = _mm512_add_ps(KernelSum, KernelVal);
-                    }
-                }
-                __m512 InvKernelSum = _mm512_div_ps(_mm512_set1_ps(1.0f), KernelSum);
-                _mm512_store_ps(Temp + y * PaddedWidth + x, _mm512_mul_ps(PixelVal, InvKernelSum));
-            }
-            for (; x < Width; x++)
+            for (int x = 0; x < width; ++x)
             {
                 float PixelVal = 0.0f, KernelSum = 0.0f;
                 for (int i = -KernelRadius; i <= KernelRadius; i++)
                 {
                     int nx = x + i;
-                    if (nx >= 0 && nx < Width)
+                    if (nx >= 0 && nx < width)
                     {
-                        float ImgPixel  = static_cast<float>(OriImg[y * Width + nx]);
-                        float KernelVal = GaussianKernel_1D[KernelRadius + i];
-                        PixelVal += ImgPixel * KernelVal;
-                        KernelSum += KernelVal;
+                        PixelVal += GaussianKernel_1D[i + KernelRadius] * inputImg[y * width + nx];
+                        KernelSum += GaussianKernel_1D[i + KernelRadius];
                     }
                 }
-                Temp[y * PaddedWidth + x] = PixelVal / KernelSum;
+                OutputImg[y * width + x] = (uint8_t)(PixelVal / KernelSum);
             }
         }
+        return NULL;
     };
 
-    auto ProcessColumn = [&](int startY, int endY) {
-        for (int y = startY; y < endY; ++y)
-        {
-            int x = 0;
-            for (; x <= Width - 16; x += 16)
-            {
-                __m512 PixelVal  = _mm512_setzero_ps();
-                __m512 KernelSum = _mm512_setzero_ps();
-                for (int j = -KernelRadius; j <= KernelRadius; j++)
-                {
-                    int ny = y + j;
-                    if (ny >= 0 && ny < Height)
-                    {
-                        __m512 ImgPixel  = _mm512_load_ps(Temp + ny * PaddedWidth + x);
-                        __m512 KernelVal = _mm512_set1_ps(GaussianKernel_1D[KernelRadius + j]);
-                        PixelVal         = _mm512_add_ps(PixelVal, _mm512_mul_ps(ImgPixel, KernelVal));
-                        KernelSum        = _mm512_add_ps(KernelSum, KernelVal);
-                    }
-                }
-                __m512 InvKernelSum = _mm512_div_ps(_mm512_set1_ps(1.0f), KernelSum);
-                _mm512_store_ps(Temp + y * PaddedWidth + x, _mm512_mul_ps(PixelVal, InvKernelSum));
-            }
-            for (; x < Width; x++)
-            {
-                float PixelVal = 0.0f, KernelSum = 0.0f;
-                for (int j = -KernelRadius; j <= KernelRadius; j++)
-                {
-                    int ny = y + j;
-                    if (ny >= 0 && ny < Height)
-                    {
-                        float ImgPixel  = Temp[ny * PaddedWidth + x];
-                        float KernelVal = GaussianKernel_1D[KernelRadius + j];
-                        PixelVal += ImgPixel * KernelVal;
-                        KernelSum += KernelVal;
-                    }
-                }
-                Temp[y * PaddedWidth + x] = PixelVal / KernelSum;
-            }
-        }
-    };
-
-    int                      RegionHeight = (Height + ThreadNum - 1) / ThreadNum;
-    std::vector<std::thread> Threads;
+    pthread_t*  Threads       = new pthread_t[ThreadNum];
+    ThreadData* ThreadDatas   = new ThreadData[ThreadNum];
+    int         RowsPerThread = Height / ThreadNum;
 
     for (int i = 0; i < ThreadNum; i++)
     {
-        int StartY = i * RegionHeight;
-        int EndY   = std::min(StartY + RegionHeight, Height);
-        Threads.emplace_back(ProcessRow, StartY, EndY);
+        ThreadDatas[i].From = i * RowsPerThread;
+        ThreadDatas[i].To   = (i + 1) * RowsPerThread;
+        if (i == ThreadNum - 1) ThreadDatas[i].To = Height;
+        ThreadDatas[i].W         = Width;
+        ThreadDatas[i].H         = Height;
+        ThreadDatas[i].InputImg  = OriImg;
+        ThreadDatas[i].OutputImg = Output;
+
+        pthread_create(&Threads[i], NULL, Gauss, &ThreadDatas[i]);
     }
-    for (auto& t : Threads) t.join();
 
-    Threads.clear();
-
-    for (int i = 0; i < ThreadNum; i++)
-    {
-        int StartY = i * RegionHeight + KernelRadius;
-        int EndY   = std::min(StartY + RegionHeight - KernelRadius, Height - KernelRadius);
-        Threads.emplace_back(ProcessColumn, StartY, EndY);
-    }
-    for (auto& t : Threads) t.join();
-
-    auto ProcessBorders = [&](int startY, int endY) {
-        if (startY < KernelRadius) { ProcessColumn(startY, std::min(startY + KernelRadius, Height)); }
-        if (endY > Height - KernelRadius) { ProcessColumn(std::max(endY - KernelRadius, 0), endY); }
-    };
-
-    Threads.clear();
-
-    for (int i = 0; i < ThreadNum; i++)
-    {
-        int startY = i * RegionHeight;
-        int endY   = std::min(startY + RegionHeight, Height);
-        Threads.emplace_back(ProcessBorders, startY, endY);
-    }
-    for (auto& t : Threads) t.join();
-
-    auto FinalizeOutput = [&](int start, int end) {
-        __m512 zero          = _mm512_set1_ps(0.0f);
-        __m512 two_five_five = _mm512_set1_ps(255.0f);
-        for (int i = start; i <= end - 16; i += 16)
-        {
-            __m512 Pixels      = _mm512_load_ps(Temp + i);
-            Pixels             = _mm512_max_ps(zero, _mm512_min_ps(Pixels, two_five_five));
-            __m512i Pixels_i32 = _mm512_cvtps_epi32(Pixels);
-            __m256i Pixels_i16 = _mm512_cvtepi32_epi16(Pixels_i32);
-            __m128i Pixels_i8  = _mm256_cvtepi16_epi8(Pixels_i16);
-            _mm_store_si128((__m128i*)(Output + i), Pixels_i8);
-        }
-        for (int i = end - (end % 16); i < end; i++)
-            Output[i] = static_cast<uint8_t>(std::min(std::max(0.0f, Temp[i]), 255.0f));
-    };
-
-    int PixelsPerThread = (Width * Height + ThreadNum - 1) / ThreadNum;
-    Threads.clear();
-
-    for (int i = 0; i < ThreadNum; i++)
-    {
-        int Start = i * PixelsPerThread;
-        int End   = std::min(Start + PixelsPerThread, Width * Height);
-        Threads.emplace_back(FinalizeOutput, Start, End);
-    }
-    for (auto& t : Threads) t.join();
-
-    _mm_free(Temp);
+    for (int i = 0; i < ThreadNum; i++) { pthread_join(Threads[i], NULL); }
+    delete[] Threads;
+    delete[] ThreadDatas;
 }
 
 void PThread::ComputeGradients(float* Gradients, uint8_t* GradDires, const uint8_t* BlurredImage, int Width, int Height)
@@ -726,10 +634,19 @@ void PThreadWithPool::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg
     Pool.Sync();
 
     auto ProcessBorders = [&](int ThID) {
-        int startY = ThID * RegionHeight;
-        int endY   = std::min(startY + RegionHeight, Height);
-        if (startY < KernelRadius) { ProcessColumn(startY, std::min(startY + KernelRadius, Height)); }
-        if (endY > Height - KernelRadius) { ProcessColumn(std::max(endY - KernelRadius, 0), endY); }
+        if (ThID == 0)
+        {
+            ProcessColumn(0, KernelRadius);
+            ProcessColumn(Height - KernelRadius, Height);
+            return;
+        }
+        else
+        {
+            int StartY = ThID * RegionHeight;
+            int EndY   = StartY + KernelRadius;
+            StartY -= KernelRadius;
+            ProcessRow(StartY, EndY);
+        }
     };
 
     for (int i = 0; i < ThreadNum; i++) { Pool.EnQueue(ProcessBorders, i); }
