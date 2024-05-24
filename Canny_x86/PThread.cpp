@@ -266,7 +266,7 @@ void PThread::ReduceNonMaximum(float* Magnitudes, float* Gradients, uint8_t* Dir
         int         StartY     = data->StartY;
         int         EndY       = data->EndY;
 
-        memcpy(Magnitudes + StartY * Width, Gradients + StartY * Width, (EndY - StartY) * Width * sizeof(float));
+        _mm512_memcpy(Magnitudes + StartY * Width, Gradients + StartY * Width, (EndY - StartY) * Width);
 
         __m512i Dir1 = _mm512_set1_epi8(1);
         __m512i Dir2 = _mm512_set1_epi8(2);
@@ -276,74 +276,69 @@ void PThread::ReduceNonMaximum(float* Magnitudes, float* Gradients, uint8_t* Dir
         for (int y = StartY; y < EndY; y++)
         {
             int x = 1;
-            for (; x <= Width - 17; x += 16)
+            for (; x < Width - 1 && ((uintptr_t)&Gradients[x + y * Width] & 63) != 0; x++)
             {
                 int Pos = x + (y * Width);
 
-                __m512i Directions = _mm512_loadu_si512((__m512i*)&Direction[Pos]);
-                __m512  Grads      = _mm512_loadu_ps(&Gradients[Pos]);
-                __m512  Magn       = Grads;
+                float   Grad = Gradients[Pos];
+                uint8_t Dir  = Direction[Pos];
 
-                __mmask16 Mask1 = _mm512_cmpeq_epi8_mask(Directions, Dir1);
-                __mmask16 Mask2 = _mm512_cmpeq_epi8_mask(Directions, Dir2);
-                __mmask16 Mask3 = _mm512_cmpeq_epi8_mask(Directions, Dir3);
-                __mmask16 Mask4 = _mm512_cmpeq_epi8_mask(Directions, Dir4);
-
-                __m512 GradsLeft        = _mm512_loadu_ps(&Gradients[Pos - 1]);
-                __m512 GradsRight       = _mm512_loadu_ps(&Gradients[Pos + 1]);
-                __m512 GradsTopLeft     = _mm512_loadu_ps(&Gradients[Pos - (Width + 1)]);
-                __m512 GradsTopRight    = _mm512_loadu_ps(&Gradients[Pos + (Width + 1)]);
-                __m512 GradsTop         = _mm512_loadu_ps(&Gradients[Pos - Width]);
-                __m512 GradsBottom      = _mm512_loadu_ps(&Gradients[Pos + Width]);
-                __m512 GradsBottomLeft  = _mm512_loadu_ps(&Gradients[Pos - (Width - 1)]);
-                __m512 GradsBottomRight = _mm512_loadu_ps(&Gradients[Pos + (Width - 1)]);
-
-                __mmask16 MaskDir1 = _mm512_kor(_mm512_cmp_ps_mask(GradsLeft, Grads, _CMP_GE_OQ),
-                    _mm512_cmp_ps_mask(GradsRight, Grads, _CMP_GT_OQ));
-                __mmask16 MaskDir2 = _mm512_kor(_mm512_cmp_ps_mask(GradsTopLeft, Grads, _CMP_GE_OQ),
-                    _mm512_cmp_ps_mask(GradsBottomRight, Grads, _CMP_GT_OQ));
-                __mmask16 MaskDir3 = _mm512_kor(_mm512_cmp_ps_mask(GradsTop, Grads, _CMP_GE_OQ),
-                    _mm512_cmp_ps_mask(GradsBottom, Grads, _CMP_GT_OQ));
-                __mmask16 MaskDir4 = _mm512_kor(_mm512_cmp_ps_mask(GradsTopRight, Grads, _CMP_GE_OQ),
-                    _mm512_cmp_ps_mask(GradsBottomLeft, Grads, _CMP_GT_OQ));
-
-                __mmask16 FinalMask1 = _mm512_kand(Mask1, MaskDir1);
-                __mmask16 FinalMask2 = _mm512_kand(Mask2, MaskDir2);
-                __mmask16 FinalMask3 = _mm512_kand(Mask3, MaskDir3);
-                __mmask16 FinalMask4 = _mm512_kand(Mask4, MaskDir4);
-
-                __mmask16 FinalMask =
-                    _mm512_kor(_mm512_kor(FinalMask1, FinalMask2), _mm512_kor(FinalMask3, FinalMask4));
-
-                Magn = _mm512_mask_blend_ps(FinalMask, Magn, _mm512_set1_ps(0.0f));
-                _mm512_storeu_ps(&Magnitudes[Pos], Magn);
-            }
-
-            for (; x < Width - 1; x++)
-            {
-                int Pos = x + (y * Width);
-                switch (Direction[Pos])
+                switch (Dir)
                 {
                     case 1:
-                        if (Gradients[Pos - 1] >= Gradients[Pos] || Gradients[Pos + 1] > Gradients[Pos])
-                            Magnitudes[Pos] = 0;
+                        if (Gradients[Pos - 1] >= Grad || Gradients[Pos + 1] > Grad) Magnitudes[Pos] = 0;
                         break;
                     case 2:
-                        if (Gradients[Pos - (Width - 1)] >= Gradients[Pos] ||
-                            Gradients[Pos + (Width - 1)] > Gradients[Pos])
+                        if (Gradients[Pos - (Width - 1)] >= Grad || Gradients[Pos + (Width - 1)] > Grad)
                             Magnitudes[Pos] = 0;
                         break;
                     case 3:
-                        if (Gradients[Pos - Width] >= Gradients[Pos] || Gradients[Pos + Width] > Gradients[Pos])
-                            Magnitudes[Pos] = 0;
+                        if (Gradients[Pos - Width] >= Grad || Gradients[Pos + Width] > Grad) Magnitudes[Pos] = 0;
                         break;
                     case 4:
-                        if (Gradients[Pos - (Width + 1)] >= Gradients[Pos] ||
-                            Gradients[Pos + (Width + 1)] > Gradients[Pos])
+                        if (Gradients[Pos - (Width + 1)] >= Grad || Gradients[Pos + (Width + 1)] > Grad)
                             Magnitudes[Pos] = 0;
                         break;
                     default: Magnitudes[Pos] = 0; break;
                 }
+            }
+
+            for (; x < Width - 1; x += 16)
+            {
+                int Pos = x + (y * Width);
+
+                __m512  Grad = _mm512_load_ps(&Gradients[Pos]);
+                __m512i Dir  = _mm512_loadu_si512((__m512i*)&Direction[Pos]);
+
+                __mmask16 Mask1 = _mm512_cmpeq_epi8_mask(Dir, Dir1);
+                __mmask16 Mask2 = _mm512_cmpeq_epi8_mask(Dir, Dir2);
+                __mmask16 Mask3 = _mm512_cmpeq_epi8_mask(Dir, Dir3);
+                __mmask16 Mask4 = _mm512_cmpeq_epi8_mask(Dir, Dir4);
+
+                __m512 GradML    = _mm512_loadu_ps(&Gradients[Pos - 1]);
+                __m512 GradPL    = _mm512_loadu_ps(&Gradients[Pos + 1]);
+                __m512 GradMWL   = _mm512_loadu_ps(&Gradients[Pos - (Width - 1)]);
+                __m512 GradPWL   = _mm512_loadu_ps(&Gradients[Pos + (Width - 1)]);
+                __m512 GradMW    = _mm512_loadu_ps(&Gradients[Pos - Width]);
+                __m512 GradPW    = _mm512_loadu_ps(&Gradients[Pos + Width]);
+                __m512 GradMWLPL = _mm512_loadu_ps(&Gradients[Pos - (Width + 1)]);
+                __m512 GradPWLPL = _mm512_loadu_ps(&Gradients[Pos + (Width + 1)]);
+
+                __mmask16 ResMask1 = _mm512_kand(Mask1,
+                    _mm512_kor(
+                        _mm512_cmp_ps_mask(GradML, Grad, _CMP_GE_OQ), _mm512_cmp_ps_mask(GradPL, Grad, _CMP_GT_OQ)));
+                __mmask16 ResMask2 = _mm512_kand(Mask2,
+                    _mm512_kor(
+                        _mm512_cmp_ps_mask(GradMWL, Grad, _CMP_GE_OQ), _mm512_cmp_ps_mask(GradPWL, Grad, _CMP_GT_OQ)));
+                __mmask16 ResMask3 = _mm512_kand(Mask3,
+                    _mm512_kor(
+                        _mm512_cmp_ps_mask(GradMW, Grad, _CMP_GE_OQ), _mm512_cmp_ps_mask(GradPW, Grad, _CMP_GT_OQ)));
+                __mmask16 ResMask4 = _mm512_kand(Mask4,
+                    _mm512_kor(_mm512_cmp_ps_mask(GradMWLPL, Grad, _CMP_GE_OQ),
+                        _mm512_cmp_ps_mask(GradPWLPL, Grad, _CMP_GT_OQ)));
+                __mmask16 ResMask  = _mm512_kor(_mm512_kor(ResMask1, ResMask2), _mm512_kor(ResMask3, ResMask4));
+
+                _mm512_mask_store_ps(&Magnitudes[Pos], ResMask, _mm512_setzero_ps());
             }
         }
         return nullptr;
@@ -423,76 +418,90 @@ void PThread::PerformDoubleThresholding(
 
 void PThread::PerformEdgeHysteresis(uint8_t* EdgedImg, uint8_t* InitialEdges, int Width, int Height)
 {
-    struct ThreadData
+    struct ThreadArgs
     {
         uint8_t* EdgedImg;
         uint8_t* InitialEdges;
         int      Width;
         int      Height;
-        int      StartY;
-        int      EndY;
+        int      ThreadNum;
+        int      ThreadId;
     };
+    _mm512_memcpy(EdgedImg, InitialEdges, Width * Height);
 
-    static __m512i LowThreshold  = _mm512_set1_epi8(static_cast<uint8_t>(100));
-    static __m512i HighThreshold = _mm512_set1_epi8(static_cast<uint8_t>(255));
+    auto ThreadFunction = [](void* arg) -> void* {
+        ThreadArgs* args         = static_cast<ThreadArgs*>(arg);
+        uint8_t*    EdgedImg     = args->EdgedImg;
+        uint8_t*    InitialEdges = args->InitialEdges;
+        int         Width        = args->Width;
+        int         Height       = args->Height;
+        int         ThreadId     = args->ThreadId;
+        int         ThreadNum    = args->ThreadNum;
 
-    memcpy(EdgedImg, InitialEdges, Width * Height * sizeof(uint8_t));
+        int blockSize = (Height - 2) / ThreadNum;
+        int startY    = ThreadId * blockSize + 1;
+        int endY      = (ThreadId == ThreadNum - 1) ? Height - 1 : (ThreadId + 1) * blockSize + 1;
 
-    auto ThreadFunc = [](void* arg) -> void* {
-        ThreadData* data         = static_cast<ThreadData*>(arg);
-        uint8_t*    EdgedImg     = data->EdgedImg;
-        uint8_t*    InitialEdges = data->InitialEdges;
-        int         Width        = data->Width;
-        int         StartY       = data->StartY;
-        int         EndY         = data->EndY;
+        std::vector<uint8_t> localVisited((endY - startY + 2) * Width, 0);
+        std::vector<int>     localEdgeQueue;
 
-        for (int y = StartY; y < EndY; y++)
+        for (int y = startY; y < endY; y++)
         {
-            int x = 1;
-            for (; x <= Width - 65; x += 64)
+            for (int x = 1; x < Width - 1; x += 16)
             {
-                __m512i   CurPixels = _mm512_loadu_si512((__m512i*)&InitialEdges[x + y * Width]);
-                __mmask64 Has100    = _mm512_cmpeq_epi8_mask(CurPixels, LowThreshold);
+                int     Pos          = x + y * Width;
+                int     localPos     = x + (y - startY + 1) * Width;
+                __m512i initialEdges = _mm512_loadu_si512((__m512i*)&InitialEdges[Pos]);
+                __m512i visited      = _mm512_loadu_si512((__m512i*)&localVisited[localPos]);
 
-                if (Has100)
+                __mmask64 edgeMask    = _mm512_cmpeq_epi8_mask(initialEdges, _mm512_set1_epi8(100));
+                __mmask64 visitedMask = _mm512_cmpeq_epi8_mask(visited, _mm512_set1_epi8(1));
+
+                __mmask64 combinedMask = _kandn_mask64(visitedMask, edgeMask);
+
+                for (int i = 0; i < 16; i++)
                 {
-                    __m512i Neighbors[8];
-                    Neighbors[0] = _mm512_loadu_si512((__m512i*)&InitialEdges[x - 1 + (y - 1) * Width]);
-                    Neighbors[1] = _mm512_loadu_si512((__m512i*)&InitialEdges[x + (y - 1) * Width]);
-                    Neighbors[2] = _mm512_loadu_si512((__m512i*)&InitialEdges[x + 1 + (y - 1) * Width]);
-                    Neighbors[3] = _mm512_loadu_si512((__m512i*)&InitialEdges[x - 1 + y * Width]);
-                    Neighbors[4] = _mm512_loadu_si512((__m512i*)&InitialEdges[x + 1 + y * Width]);
-                    Neighbors[5] = _mm512_loadu_si512((__m512i*)&InitialEdges[x - 1 + (y + 1) * Width]);
-                    Neighbors[6] = _mm512_loadu_si512((__m512i*)&InitialEdges[x + (y + 1) * Width]);
-                    Neighbors[7] = _mm512_loadu_si512((__m512i*)&InitialEdges[x + 1 + (y + 1) * Width]);
-
-                    __m512i Res = _mm512_set1_epi8(0);
-                    for (int i = 0; i < 8; i++)
+                    int PixelIdx = Pos + i;
+                    int localIdx = localPos + i;
+                    if (combinedMask & (1ULL << i) && !localVisited[localIdx])
                     {
-                        __mmask64 LocalMask = _mm512_cmpeq_epi8_mask(Neighbors[i], HighThreshold);
-                        Res                 = _mm512_mask_blend_epi8(LocalMask, Res, HighThreshold);
+                        bool HasStrongNeighbor =
+                            (InitialEdges[PixelIdx - 1] == 255 || InitialEdges[PixelIdx + 1] == 255 ||
+                                InitialEdges[PixelIdx - Width] == 255 || InitialEdges[PixelIdx + Width] == 255 ||
+                                InitialEdges[PixelIdx - Width - 1] == 255 ||
+                                InitialEdges[PixelIdx - Width + 1] == 255 ||
+                                InitialEdges[PixelIdx + Width - 1] == 255 || InitialEdges[PixelIdx + Width + 1] == 255);
+                        if (HasStrongNeighbor)
+                        {
+                            localEdgeQueue.push_back(PixelIdx);
+                            localVisited[localIdx] = 1;
+                        }
+                        else { EdgedImg[PixelIdx] = 0; }
                     }
-                    _mm512_mask_storeu_epi8(&EdgedImg[x + y * Width], Has100, Res);
                 }
             }
+        }
 
-            for (; x < Width - 1; x++)
+        for (size_t i = 0; i < localEdgeQueue.size(); ++i)
+        {
+            int PixelIdx = localEdgeQueue[i];
+
+            for (int dx = -1; dx <= 1; dx++)
             {
-                if (InitialEdges[x + y * Width] == 100)
+                for (int dy = -1; dy <= 1; dy++)
                 {
-                    bool EdgePresent = 0;
-                    for (int ny = -1; ny <= 1 && !EdgePresent; ny++)
+                    int newX        = (PixelIdx % Width) + dx;
+                    int newY        = (PixelIdx / Width) + dy;
+                    int newPixelIdx = newX + newY * Width;
+                    int localNewIdx = newX + (newY - startY + 1) * Width;
+
+                    if (newX >= 0 && newX < Width && newY >= startY - 1 && newY < endY + 1 &&
+                        !localVisited[localNewIdx] && InitialEdges[newPixelIdx] == 100)
                     {
-                        for (int nx = -1; nx <= 1; nx++)
-                        {
-                            if (InitialEdges[x + nx + (y + ny) * Width] == 255)
-                            {
-                                EdgePresent = 1;
-                                break;
-                            }
-                        }
+                        localEdgeQueue.push_back(newPixelIdx);
+                        localVisited[localNewIdx] = 1;
+                        EdgedImg[newPixelIdx]     = 255;
                     }
-                    EdgedImg[x + y * Width] = EdgePresent ? 255 : 0;
                 }
             }
         }
@@ -500,21 +509,15 @@ void PThread::PerformEdgeHysteresis(uint8_t* EdgedImg, uint8_t* InitialEdges, in
     };
 
     std::vector<pthread_t>  Threads(ThreadNum);
-    std::vector<ThreadData> threadData(ThreadNum);
+    std::vector<ThreadArgs> Args(ThreadNum);
 
-    int rowsPerThread = (Height - 2) / ThreadNum;
-    for (int i = 0; i < ThreadNum; i++)
+    for (int t = 0; t < ThreadNum; ++t)
     {
-        threadData[i] = {EdgedImg,
-            InitialEdges,
-            Width,
-            Height,
-            1 + i * rowsPerThread,
-            (i == ThreadNum - 1) ? Height - 1 : 1 + (i + 1) * rowsPerThread};
-        pthread_create(&Threads[i], nullptr, ThreadFunc, &threadData[i]);
+        Args[t] = {EdgedImg, InitialEdges, Width, Height, ThreadNum, t};
+        pthread_create(&Threads[t], nullptr, ThreadFunction, &Args[t]);
     }
 
-    for (int i = 0; i < ThreadNum; i++) { pthread_join(Threads[i], nullptr); }
+    for (int t = 0; t < ThreadNum; ++t) { pthread_join(Threads[t], nullptr); }
 }
 
 // 以下为使用线程池的版本，减少因线程创建和销毁带来的开销
@@ -617,39 +620,42 @@ void PThreadWithPool::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg
         }
     };
 
-    int RegionHeight = (Height + ThreadNum - 1) / ThreadNum;
+    int NumBlocks = ThreadNum * 4;
+    int BlockSize = (Height + NumBlocks - 1) / NumBlocks;
 
-    auto ProcessRegion = [&](int ThID) {
-        int StartY = ThID * RegionHeight;
-        int EndY   = std::min(StartY + RegionHeight, Height);
+    std::mutex                       TaskMutex;
+    std::vector<std::pair<int, int>> Tasks;
 
-        ProcessRow(StartY, EndY);
+    for (int t = 0; t < NumBlocks; ++t)
+    {
+        int startY = t * BlockSize;
+        int endY   = std::min((t + 1) * BlockSize, Height);
+        Tasks.push_back({startY, endY});
+    }
 
-        int InnerStartY = StartY + KernelRadius;
-        int InnerEndY   = EndY - KernelRadius;
-        ProcessColumn(InnerStartY, InnerEndY);
-    };
+    for (int t = 0; t < ThreadNum; ++t)
+    {
+        Pool.EnQueue([&, t] {
+            while (true)
+            {
+                std::pair<int, int> task;
 
-    for (int i = 0; i < ThreadNum; i++) { Pool.EnQueue(ProcessRegion, i); }
-    Pool.Sync();
+                {
+                    std::lock_guard<std::mutex> lock(TaskMutex);
+                    if (Tasks.empty()) break;
+                    task = Tasks.back();
+                    Tasks.pop_back();
+                }
 
-    auto ProcessBorders = [&](int ThID) {
-        if (ThID == 0)
-        {
-            ProcessColumn(0, KernelRadius);
-            ProcessColumn(Height - KernelRadius, Height);
-            return;
-        }
-        else
-        {
-            int StartY = ThID * RegionHeight;
-            int EndY   = StartY + KernelRadius;
-            StartY -= KernelRadius;
-            ProcessRow(StartY, EndY);
-        }
-    };
+                int startY = task.first;
+                int endY   = task.second;
 
-    for (int i = 0; i < ThreadNum; i++) { Pool.EnQueue(ProcessBorders, i); }
+                ProcessRow(startY, endY);
+                ProcessColumn(startY + KernelRadius, endY - KernelRadius);
+            }
+        });
+    }
+
     Pool.Sync();
 
     auto FinalizeOutput = [&](int start, int end) {
@@ -687,134 +693,158 @@ void PThreadWithPool::ComputeGradients(
     const int8_t     Gy[]   = {1, 2, 1, 0, 0, 0, -1, -2, -1};
     static const int Offset = 1;
 
-    int RPT = Height / ThreadNum;
+    int NumBlocks = ThreadNum * 4;
+    int BlockSize = (Height + NumBlocks - 1) / NumBlocks;
 
-    for (int i = 0; i < ThreadNum; i++)
+    std::mutex                       TaskMutex;
+    std::vector<std::pair<int, int>> Tasks;
+
+    for (int t = 0; t < NumBlocks; ++t)
     {
-        int RFrom = i * RPT + 1;
-        int REnd  = (i == ThreadNum - 1) ? (Height - 1) : (RFrom + RPT);
+        int startY = t * BlockSize;
+        int endY   = std::min((t + 1) * BlockSize, Height);
+        Tasks.push_back({startY, endY});
+    }
 
-        auto ThreadFunc = [Gradients, GradDires, BlurredImage, Width, Height, RFrom, REnd, Gx, Gy]() {
-            for (int y = RFrom; y < REnd; y++)
+    auto ProcessBlock = [&](int start, int end) {
+        for (int y = start; y < end; y++)
+        {
+            int x = Offset;
+            for (; x < Offset + (16 - Offset % 16); x++)
             {
-                int x = Offset;
-                for (; x < Offset + (16 - Offset % 16); x++)
+                if (x >= Width - Offset) break;
+                float GradX = 0.0f;
+                float GradY = 0.0f;
+                for (int ky = -Offset; ky <= Offset; ky++)
                 {
-                    if (x >= Width - Offset) break;
-                    float GradX = 0.0f;
-                    float GradY = 0.0f;
-                    for (int ky = -Offset; ky <= Offset; ky++)
+                    for (int kx = -Offset; kx <= Offset; kx++)
                     {
-                        for (int kx = -Offset; kx <= Offset; kx++)
-                        {
-                            int KernelIdx = (ky + Offset) * 3 + (kx + Offset);
-                            int PixelIdx  = x + kx + (y + ky) * Width;
-                            GradX += BlurredImage[PixelIdx] * Gx[KernelIdx];
-                            GradY += BlurredImage[PixelIdx] * Gy[KernelIdx];
-                        }
+                        int KernelIdx = (ky + Offset) * 3 + (kx + Offset);
+                        int PixelIdx  = x + kx + (y + ky) * Width;
+                        GradX += BlurredImage[PixelIdx] * Gx[KernelIdx];
+                        GradY += BlurredImage[PixelIdx] * Gy[KernelIdx];
                     }
-                    Gradients[x + y * Width] = std::sqrt(GradX * GradX + GradY * GradY);
-                    float   Degree           = std::atan2(GradY, GradX) * (360.0 / (2.0 * M_PI));
-                    uint8_t Direction        = 0;
-                    if ((Degree <= 22.5 && Degree > -22.5) || (Degree <= -157.5 || Degree > 157.5))
-                        Direction = 1;
-                    else if ((Degree > 22.5 && Degree <= 67.5) || (Degree > -157.5 && Degree <= -112.5))
-                        Direction = 2;
-                    else if ((Degree > 67.5 && Degree <= 112.5) || (Degree > -112.5 && Degree <= -67.5))
-                        Direction = 3;
-                    else if ((Degree > 112.5 && Degree <= 157.5) || (Degree > -67.5 && Degree <= -22.5))
-                        Direction = 4;
-                    GradDires[x + y * Width] = Direction;
                 }
-
-                for (; x <= Width - 16 - Offset; x += 16)
-                {
-                    __m512 GradX = _mm512_setzero_ps();
-                    __m512 GradY = _mm512_setzero_ps();
-
-                    for (int ky = -Offset; ky <= Offset; ky++)
-                    {
-                        for (int kx = -Offset; kx <= Offset; kx++)
-                        {
-                            int KernelIdx = (ky + Offset) * 3 + (kx + Offset);
-                            int PixelIdx  = x + (y * Width) + kx + (ky * Width);
-
-                            if (x + 15 < Width)
-                            {
-                                __m512i PixelValues =
-                                    _mm512_cvtepu8_epi32(_mm_loadu_si128((const __m128i*)(BlurredImage + PixelIdx)));
-                                __m512i GxValue = _mm512_set1_epi32(Gx[KernelIdx]);
-                                __m512i GyValue = _mm512_set1_epi32(Gy[KernelIdx]);
-
-                                GradX = _mm512_add_ps(
-                                    GradX, _mm512_mul_ps(_mm512_cvtepi32_ps(PixelValues), _mm512_cvtepi32_ps(GxValue)));
-                                GradY = _mm512_add_ps(
-                                    GradY, _mm512_mul_ps(_mm512_cvtepi32_ps(PixelValues), _mm512_cvtepi32_ps(GyValue)));
-                            }
-                        }
-                    }
-
-                    __m512 Magnitude =
-                        _mm512_sqrt_ps(_mm512_add_ps(_mm512_mul_ps(GradX, GradX), _mm512_mul_ps(GradY, GradY)));
-                    _mm512_store_ps(Gradients + x + y * Width, Magnitude);
-
-                    __m512 Degrees = _mm512_arctan2(GradY, GradX) * _mm512_set1_ps(360.0 / (2.0 * M_PI));
-
-                    __m512i   Directions = _mm512_setzero_si512();
-                    __mmask16 DireMask1  = (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(22.5), _CMP_LE_OS) &
-                                              _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-22.5), _CMP_NLE_US)) |
-                                          _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-157.5), _CMP_LE_OS) |
-                                          _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(157.5), _CMP_NLE_US);
-                    __mmask16 DireMask2 = (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(22.5), _CMP_GT_OS) &
-                                              _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(67.5), _CMP_LE_OS)) |
-                                          (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-157.5), _CMP_GT_OS) &
-                                              _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-112.5), _CMP_LE_OS));
-                    __mmask16 DireMask3 = (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(67.5), _CMP_GT_OS) &
-                                              _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(112.5), _CMP_LE_OS)) |
-                                          (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-112.5), _CMP_GE_OS) &
-                                              _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-67.5), _CMP_LT_OS));
-                    __mmask16 DireMask4 = (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-67.5), _CMP_GE_OS) &
-                                              _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-22.5), _CMP_LT_OS)) |
-                                          (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(112.5), _CMP_GT_OS) &
-                                              _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(157.5), _CMP_LT_OS));
-                    Directions = _mm512_mask_add_epi32(Directions, DireMask1, Directions, _mm512_set1_epi32(1));
-                    Directions = _mm512_mask_add_epi32(Directions, DireMask2, Directions, _mm512_set1_epi32(2));
-                    Directions = _mm512_mask_add_epi32(Directions, DireMask3, Directions, _mm512_set1_epi32(3));
-                    Directions = _mm512_mask_add_epi32(Directions, DireMask4, Directions, _mm512_set1_epi32(4));
-
-                    _mm_store_si128((__m128i*)(GradDires + x + y * Width), _mm512_cvtsepi32_epi8(Directions));
-                }
-                for (; x < Width - Offset; x++)
-                {
-                    float GradX = 0.0f;
-                    float GradY = 0.0f;
-                    for (int ky = -Offset; ky <= Offset; ky++)
-                    {
-                        for (int kx = -Offset; kx <= Offset; kx++)
-                        {
-                            int KernelIdx = (ky + Offset) * 3 + (kx + Offset);
-                            int PixelIdx  = x + kx + (y + ky) * Width;
-                            GradX += BlurredImage[PixelIdx] * Gx[KernelIdx];
-                            GradY += BlurredImage[PixelIdx] * Gy[KernelIdx];
-                        }
-                    }
-                    Gradients[x + y * Width] = std::sqrt(GradX * GradX + GradY * GradY);
-                    float   Degree           = std::atan2(GradY, GradX) * (360.0 / (2.0 * M_PI));
-                    uint8_t Direction        = 0;
-                    if ((Degree <= 22.5 && Degree > -22.5) || (Degree <= -157.5 || Degree > 157.5))
-                        Direction = 1;
-                    else if ((Degree > 22.5 && Degree <= 67.5) || (Degree > -157.5 && Degree <= -112.5))
-                        Direction = 2;
-                    else if ((Degree > 67.5 && Degree <= 112.5) || (Degree > -112.5 && Degree <= -67.5))
-                        Direction = 3;
-                    else if ((Degree > 112.5 and Degree <= 157.5) || (Degree > -67.5 and Degree <= -22.5))
-                        Direction = 4;
-                    GradDires[x + y * Width] = Direction;
-                }
+                Gradients[x + y * Width] = std::sqrt(GradX * GradX + GradY * GradY);
+                float   Degree           = std::atan2(GradY, GradX) * (360.0 / (2.0 * M_PI));
+                uint8_t Direction        = 0;
+                if ((Degree <= 22.5 && Degree > -22.5) || (Degree <= -157.5 || Degree > 157.5))
+                    Direction = 1;
+                else if ((Degree > 22.5 && Degree <= 67.5) || (Degree > -157.5 && Degree <= -112.5))
+                    Direction = 2;
+                else if ((Degree > 67.5 && Degree <= 112.5) || (Degree > -112.5 && Degree <= -67.5))
+                    Direction = 3;
+                else if ((Degree > 112.5 && Degree <= 157.5) || (Degree > -67.5 && Degree <= -22.5))
+                    Direction = 4;
+                GradDires[x + y * Width] = Direction;
             }
-        };
 
-        Pool.EnQueue(ThreadFunc);
+            for (; x <= Width - 16 - Offset; x += 16)
+            {
+                __m512 GradX = _mm512_setzero_ps();
+                __m512 GradY = _mm512_setzero_ps();
+
+                for (int ky = -Offset; ky <= Offset; ky++)
+                {
+                    for (int kx = -Offset; kx <= Offset; kx++)
+                    {
+                        int KernelIdx = (ky + Offset) * 3 + (kx + Offset);
+                        int PixelIdx  = x + (y * Width) + kx + (ky * Width);
+
+                        if (x + 15 < Width)
+                        {
+                            __m512i PixelValues =
+                                _mm512_cvtepu8_epi32(_mm_loadu_si128((const __m128i*)(BlurredImage + PixelIdx)));
+                            __m512i GxValue = _mm512_set1_epi32(Gx[KernelIdx]);
+                            __m512i GyValue = _mm512_set1_epi32(Gy[KernelIdx]);
+
+                            GradX = _mm512_add_ps(
+                                GradX, _mm512_mul_ps(_mm512_cvtepi32_ps(PixelValues), _mm512_cvtepi32_ps(GxValue)));
+                            GradY = _mm512_add_ps(
+                                GradY, _mm512_mul_ps(_mm512_cvtepi32_ps(PixelValues), _mm512_cvtepi32_ps(GyValue)));
+                        }
+                    }
+                }
+
+                __m512 Magnitude =
+                    _mm512_sqrt_ps(_mm512_add_ps(_mm512_mul_ps(GradX, GradX), _mm512_mul_ps(GradY, GradY)));
+                _mm512_store_ps(Gradients + x + y * Width, Magnitude);
+
+                __m512 Degrees = _mm512_arctan2(GradY, GradX) * _mm512_set1_ps(360.0 / (2.0 * M_PI));
+
+                __m512i   Directions = _mm512_setzero_si512();
+                __mmask16 DireMask1  = (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(22.5), _CMP_LE_OS) &
+                                          _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-22.5), _CMP_NLE_US)) |
+                                      _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-157.5), _CMP_LE_OS) |
+                                      _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(157.5), _CMP_NLE_US);
+                __mmask16 DireMask2 = (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(22.5), _CMP_GT_OS) &
+                                          _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(67.5), _CMP_LE_OS)) |
+                                      (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-157.5), _CMP_GT_OS) &
+                                          _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-112.5), _CMP_LE_OS));
+                __mmask16 DireMask3 = (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(67.5), _CMP_GT_OS) &
+                                          _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(112.5), _CMP_LE_OS)) |
+                                      (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-112.5), _CMP_GE_OS) &
+                                          _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-67.5), _CMP_LT_OS));
+                __mmask16 DireMask4 = (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-67.5), _CMP_GE_OS) &
+                                          _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(-22.5), _CMP_LT_OS)) |
+                                      (_mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(112.5), _CMP_GT_OS) &
+                                          _mm512_cmp_ps_mask(Degrees, _mm512_set1_ps(157.5), _CMP_LT_OS));
+                Directions = _mm512_mask_add_epi32(Directions, DireMask1, Directions, _mm512_set1_epi32(1));
+                Directions = _mm512_mask_add_epi32(Directions, DireMask2, Directions, _mm512_set1_epi32(2));
+                Directions = _mm512_mask_add_epi32(Directions, DireMask3, Directions, _mm512_set1_epi32(3));
+                Directions = _mm512_mask_add_epi32(Directions, DireMask4, Directions, _mm512_set1_epi32(4));
+
+                _mm_store_si128((__m128i*)(GradDires + x + y * Width), _mm512_cvtsepi32_epi8(Directions));
+            }
+            for (; x < Width - Offset; x++)
+            {
+                float GradX = 0.0f;
+                float GradY = 0.0f;
+                for (int ky = -Offset; ky <= Offset; ky++)
+                {
+                    for (int kx = -Offset; kx <= Offset; kx++)
+                    {
+                        int KernelIdx = (ky + Offset) * 3 + (kx + Offset);
+                        int PixelIdx  = x + kx + (y + ky) * Width;
+                        GradX += BlurredImage[PixelIdx] * Gx[KernelIdx];
+                        GradY += BlurredImage[PixelIdx] * Gy[KernelIdx];
+                    }
+                }
+                Gradients[x + y * Width] = std::sqrt(GradX * GradX + GradY * GradY);
+                float   Degree           = std::atan2(GradY, GradX) * (360.0 / (2.0 * M_PI));
+                uint8_t Direction        = 0;
+                if ((Degree <= 22.5 && Degree > -22.5) || (Degree <= -157.5 || Degree > 157.5))
+                    Direction = 1;
+                else if ((Degree > 22.5 && Degree <= 67.5) || (Degree > -157.5 && Degree <= -112.5))
+                    Direction = 2;
+                else if ((Degree > 67.5 && Degree <= 112.5) || (Degree > -112.5 && Degree <= -67.5))
+                    Direction = 3;
+                else if ((Degree > 112.5 and Degree <= 157.5) || (Degree > -67.5 and Degree <= -22.5))
+                    Direction = 4;
+                GradDires[x + y * Width] = Direction;
+            }
+        }
+    };
+    for (int t = 0; t < ThreadNum; ++t)
+    {
+        Pool.EnQueue([&, t] {
+            while (true)
+            {
+                std::pair<int, int> task;
+
+                {
+                    std::lock_guard<std::mutex> lock(TaskMutex);
+                    if (Tasks.empty()) break;
+                    task = Tasks.back();
+                    Tasks.pop_back();
+                }
+
+                int startY = task.first;
+                int endY   = task.second;
+
+                ProcessBlock(startY, endY);
+            }
+        });
     }
 
     Pool.Sync();
@@ -826,7 +856,7 @@ void PThreadWithPool::ReduceNonMaximum(float* Magnitudes, float* Gradients, uint
     std::vector<std::future<void>> futures;
 
     auto Reduce = [](float* Magnitudes, float* Gradients, uint8_t* Direction, int Width, int StartY, int EndY) {
-        memcpy(Magnitudes + StartY * Width, Gradients + StartY * Width, (EndY - StartY) * Width * sizeof(float));
+        _mm512_memcpy(Magnitudes + StartY * Width, Gradients + StartY * Width, (EndY - StartY) * Width);
 
         __m512i Dir1 = _mm512_set1_epi8(1);
         __m512i Dir2 = _mm512_set1_epi8(2);
@@ -836,74 +866,69 @@ void PThreadWithPool::ReduceNonMaximum(float* Magnitudes, float* Gradients, uint
         for (int y = StartY; y < EndY; y++)
         {
             int x = 1;
-            for (; x <= Width - 17; x += 16)
+            for (; x < Width - 1 && ((uintptr_t)&Gradients[x + y * Width] & 63) != 0; x++)
             {
                 int Pos = x + (y * Width);
 
-                __m512i Directions = _mm512_loadu_si512((__m512i*)&Direction[Pos]);
-                __m512  Grads      = _mm512_loadu_ps(&Gradients[Pos]);
-                __m512  Magn       = Grads;
+                float   Grad = Gradients[Pos];
+                uint8_t Dir  = Direction[Pos];
 
-                __mmask16 Mask1 = _mm512_cmpeq_epi8_mask(Directions, Dir1);
-                __mmask16 Mask2 = _mm512_cmpeq_epi8_mask(Directions, Dir2);
-                __mmask16 Mask3 = _mm512_cmpeq_epi8_mask(Directions, Dir3);
-                __mmask16 Mask4 = _mm512_cmpeq_epi8_mask(Directions, Dir4);
-
-                __m512 GradsLeft        = _mm512_loadu_ps(&Gradients[Pos - 1]);
-                __m512 GradsRight       = _mm512_loadu_ps(&Gradients[Pos + 1]);
-                __m512 GradsTopLeft     = _mm512_loadu_ps(&Gradients[Pos - (Width + 1)]);
-                __m512 GradsTopRight    = _mm512_loadu_ps(&Gradients[Pos + (Width + 1)]);
-                __m512 GradsTop         = _mm512_loadu_ps(&Gradients[Pos - Width]);
-                __m512 GradsBottom      = _mm512_loadu_ps(&Gradients[Pos + Width]);
-                __m512 GradsBottomLeft  = _mm512_loadu_ps(&Gradients[Pos - (Width - 1)]);
-                __m512 GradsBottomRight = _mm512_loadu_ps(&Gradients[Pos + (Width - 1)]);
-
-                __mmask16 MaskDir1 = _mm512_kor(_mm512_cmp_ps_mask(GradsLeft, Grads, _CMP_GE_OQ),
-                    _mm512_cmp_ps_mask(GradsRight, Grads, _CMP_GT_OQ));
-                __mmask16 MaskDir2 = _mm512_kor(_mm512_cmp_ps_mask(GradsTopLeft, Grads, _CMP_GE_OQ),
-                    _mm512_cmp_ps_mask(GradsBottomRight, Grads, _CMP_GT_OQ));
-                __mmask16 MaskDir3 = _mm512_kor(_mm512_cmp_ps_mask(GradsTop, Grads, _CMP_GE_OQ),
-                    _mm512_cmp_ps_mask(GradsBottom, Grads, _CMP_GT_OQ));
-                __mmask16 MaskDir4 = _mm512_kor(_mm512_cmp_ps_mask(GradsTopRight, Grads, _CMP_GE_OQ),
-                    _mm512_cmp_ps_mask(GradsBottomLeft, Grads, _CMP_GT_OQ));
-
-                __mmask16 FinalMask1 = _mm512_kand(Mask1, MaskDir1);
-                __mmask16 FinalMask2 = _mm512_kand(Mask2, MaskDir2);
-                __mmask16 FinalMask3 = _mm512_kand(Mask3, MaskDir3);
-                __mmask16 FinalMask4 = _mm512_kand(Mask4, MaskDir4);
-
-                __mmask16 FinalMask =
-                    _mm512_kor(_mm512_kor(FinalMask1, FinalMask2), _mm512_kor(FinalMask3, FinalMask4));
-
-                Magn = _mm512_mask_blend_ps(FinalMask, Magn, _mm512_set1_ps(0.0f));
-                _mm512_storeu_ps(&Magnitudes[Pos], Magn);
-            }
-
-            for (; x < Width - 1; x++)
-            {
-                int Pos = x + (y * Width);
-                switch (Direction[Pos])
+                switch (Dir)
                 {
                     case 1:
-                        if (Gradients[Pos - 1] >= Gradients[Pos] || Gradients[Pos + 1] > Gradients[Pos])
-                            Magnitudes[Pos] = 0;
+                        if (Gradients[Pos - 1] >= Grad || Gradients[Pos + 1] > Grad) Magnitudes[Pos] = 0;
                         break;
                     case 2:
-                        if (Gradients[Pos - (Width - 1)] >= Gradients[Pos] ||
-                            Gradients[Pos + (Width - 1)] > Gradients[Pos])
+                        if (Gradients[Pos - (Width - 1)] >= Grad || Gradients[Pos + (Width - 1)] > Grad)
                             Magnitudes[Pos] = 0;
                         break;
                     case 3:
-                        if (Gradients[Pos - Width] >= Gradients[Pos] || Gradients[Pos + Width] > Gradients[Pos])
-                            Magnitudes[Pos] = 0;
+                        if (Gradients[Pos - Width] >= Grad || Gradients[Pos + Width] > Grad) Magnitudes[Pos] = 0;
                         break;
                     case 4:
-                        if (Gradients[Pos - (Width + 1)] >= Gradients[Pos] ||
-                            Gradients[Pos + (Width + 1)] > Gradients[Pos])
+                        if (Gradients[Pos - (Width + 1)] >= Grad || Gradients[Pos + (Width + 1)] > Grad)
                             Magnitudes[Pos] = 0;
                         break;
                     default: Magnitudes[Pos] = 0; break;
                 }
+            }
+
+            for (; x < Width - 1; x += 16)
+            {
+                int Pos = x + (y * Width);
+
+                __m512  Grad = _mm512_load_ps(&Gradients[Pos]);
+                __m512i Dir  = _mm512_loadu_si512((__m512i*)&Direction[Pos]);
+
+                __mmask16 Mask1 = _mm512_cmpeq_epi8_mask(Dir, Dir1);
+                __mmask16 Mask2 = _mm512_cmpeq_epi8_mask(Dir, Dir2);
+                __mmask16 Mask3 = _mm512_cmpeq_epi8_mask(Dir, Dir3);
+                __mmask16 Mask4 = _mm512_cmpeq_epi8_mask(Dir, Dir4);
+
+                __m512 GradML    = _mm512_loadu_ps(&Gradients[Pos - 1]);
+                __m512 GradPL    = _mm512_loadu_ps(&Gradients[Pos + 1]);
+                __m512 GradMWL   = _mm512_loadu_ps(&Gradients[Pos - (Width - 1)]);
+                __m512 GradPWL   = _mm512_loadu_ps(&Gradients[Pos + (Width - 1)]);
+                __m512 GradMW    = _mm512_loadu_ps(&Gradients[Pos - Width]);
+                __m512 GradPW    = _mm512_loadu_ps(&Gradients[Pos + Width]);
+                __m512 GradMWLPL = _mm512_loadu_ps(&Gradients[Pos - (Width + 1)]);
+                __m512 GradPWLPL = _mm512_loadu_ps(&Gradients[Pos + (Width + 1)]);
+
+                __mmask16 ResMask1 = _mm512_kand(Mask1,
+                    _mm512_kor(
+                        _mm512_cmp_ps_mask(GradML, Grad, _CMP_GE_OQ), _mm512_cmp_ps_mask(GradPL, Grad, _CMP_GT_OQ)));
+                __mmask16 ResMask2 = _mm512_kand(Mask2,
+                    _mm512_kor(
+                        _mm512_cmp_ps_mask(GradMWL, Grad, _CMP_GE_OQ), _mm512_cmp_ps_mask(GradPWL, Grad, _CMP_GT_OQ)));
+                __mmask16 ResMask3 = _mm512_kand(Mask3,
+                    _mm512_kor(
+                        _mm512_cmp_ps_mask(GradMW, Grad, _CMP_GE_OQ), _mm512_cmp_ps_mask(GradPW, Grad, _CMP_GT_OQ)));
+                __mmask16 ResMask4 = _mm512_kand(Mask4,
+                    _mm512_kor(_mm512_cmp_ps_mask(GradMWLPL, Grad, _CMP_GE_OQ),
+                        _mm512_cmp_ps_mask(GradPWLPL, Grad, _CMP_GT_OQ)));
+                __mmask16 ResMask  = _mm512_kor(_mm512_kor(ResMask1, ResMask2), _mm512_kor(ResMask3, ResMask4));
+
+                _mm512_mask_store_ps(&Magnitudes[Pos], ResMask, _mm512_setzero_ps());
             }
         }
     };
@@ -962,76 +987,108 @@ void PThreadWithPool::PerformDoubleThresholding(
 
 void PThreadWithPool::PerformEdgeHysteresis(uint8_t* EdgedImg, uint8_t* InitialEdges, int Width, int Height)
 {
-    static __m512i LowThreshold  = _mm512_set1_epi8(static_cast<uint8_t>(100));
-    static __m512i HighThreshold = _mm512_set1_epi8(static_cast<uint8_t>(255));
+    _mm512_memcpy(EdgedImg, InitialEdges, Width * Height);
 
-    memcpy(EdgedImg, InitialEdges, Width * Height * sizeof(uint8_t));
+    std::vector<std::future<void>>   Futures;
+    int                              NumBlocks = ThreadNum * 4;
+    int                              BlockSize = (Height - 2) / NumBlocks;
+    std::mutex                       TaskMutex;
+    std::vector<std::pair<int, int>> Tasks;
 
-    int RowPerThread = (Height - 2) / ThreadNum;
+    for (int t = 0; t < NumBlocks; ++t)
+    {
+        int startY = t * BlockSize + 1;
+        int endY   = (t == NumBlocks - 1) ? Height - 1 : (t + 1) * BlockSize + 1;
+        Tasks.push_back({startY, endY});
+    }
 
-    auto ThreadFunc = [](uint8_t* EdgedImg, uint8_t* InitialEdges, int Width, int StartY, int EndY) {
-        for (int y = StartY; y < EndY; y++)
-        {
-            int x = 1;
-            for (; x <= Width - 65; x += 64)
+    for (int t = 0; t < ThreadNum; ++t)
+    {
+        Futures.push_back(Pool.EnQueue([&, t] {
+            while (true)
             {
-                __m512i   CurPixels = _mm512_loadu_si512((__m512i*)&InitialEdges[x + y * Width]);
-                __mmask64 Has100    = _mm512_cmpeq_epi8_mask(CurPixels, LowThreshold);
+                std::pair<int, int> task;
 
-                if (Has100)
                 {
-                    __m512i Neighbors[8];
-                    Neighbors[0] = _mm512_loadu_si512((__m512i*)&InitialEdges[x - 1 + (y - 1) * Width]);
-                    Neighbors[1] = _mm512_loadu_si512((__m512i*)&InitialEdges[x + (y - 1) * Width]);
-                    Neighbors[2] = _mm512_loadu_si512((__m512i*)&InitialEdges[x + 1 + (y - 1) * Width]);
-                    Neighbors[3] = _mm512_loadu_si512((__m512i*)&InitialEdges[x - 1 + y * Width]);
-                    Neighbors[4] = _mm512_loadu_si512((__m512i*)&InitialEdges[x + 1 + y * Width]);
-                    Neighbors[5] = _mm512_loadu_si512((__m512i*)&InitialEdges[x - 1 + (y + 1) * Width]);
-                    Neighbors[6] = _mm512_loadu_si512((__m512i*)&InitialEdges[x + (y + 1) * Width]);
-                    Neighbors[7] = _mm512_loadu_si512((__m512i*)&InitialEdges[x + 1 + (y + 1) * Width]);
-
-                    __m512i Res = _mm512_set1_epi8(0);
-                    for (int i = 0; i < 8; i++)
-                    {
-                        __mmask64 LocalMask = _mm512_cmpeq_epi8_mask(Neighbors[i], HighThreshold);
-                        Res                 = _mm512_mask_blend_epi8(LocalMask, Res, HighThreshold);
-                    }
-                    _mm512_mask_storeu_epi8(&EdgedImg[x + y * Width], Has100, Res);
+                    std::lock_guard<std::mutex> lock(TaskMutex);
+                    if (Tasks.empty()) break;
+                    task = Tasks.back();
+                    Tasks.pop_back();
                 }
-            }
 
-            for (; x < Width - 1; x++)
-            {
-                if (InitialEdges[x + y * Width] == 100)
+                int startY = task.first;
+                int endY   = task.second;
+
+                std::vector<uint8_t> localVisited((endY - startY + 2) * Width, 0);
+                std::vector<int>     localEdgeQueue;
+
+                for (int y = startY; y < endY; y++)
                 {
-                    bool EdgePresent = 0;
-                    for (int ny = -1; ny <= 1 && !EdgePresent; ny++)
+                    for (int x = 1; x < Width - 1; x += 16)
                     {
-                        for (int nx = -1; nx <= 1; nx++)
+                        int     Pos          = x + y * Width;
+                        int     localPos     = x + (y - startY + 1) * Width;
+                        __m512i initialEdges = _mm512_loadu_si512((__m512i*)&InitialEdges[Pos]);
+                        __m512i visited      = _mm512_loadu_si512((__m512i*)&localVisited[localPos]);
+
+                        __mmask64 edgeMask    = _mm512_cmpeq_epi8_mask(initialEdges, _mm512_set1_epi8(100));
+                        __mmask64 visitedMask = _mm512_cmpeq_epi8_mask(visited, _mm512_set1_epi8(1));
+
+                        __mmask64 combinedMask = _kandn_mask64(visitedMask, edgeMask);
+
+                        for (int i = 0; i < 16; i++)
                         {
-                            if (InitialEdges[x + nx + (y + ny) * Width] == 255)
+                            int PixelIdx = Pos + i;
+                            int localIdx = localPos + i;
+                            if (combinedMask & (1ULL << i) && !localVisited[localIdx])
                             {
-                                EdgePresent = 1;
-                                break;
+                                bool HasStrongNeighbor =
+                                    (InitialEdges[PixelIdx - 1] == 255 || InitialEdges[PixelIdx + 1] == 255 ||
+                                        InitialEdges[PixelIdx - Width] == 255 ||
+                                        InitialEdges[PixelIdx + Width] == 255 ||
+                                        InitialEdges[PixelIdx - Width - 1] == 255 ||
+                                        InitialEdges[PixelIdx - Width + 1] == 255 ||
+                                        InitialEdges[PixelIdx + Width - 1] == 255 ||
+                                        InitialEdges[PixelIdx + Width + 1] == 255);
+                                if (HasStrongNeighbor)
+                                {
+                                    localEdgeQueue.push_back(PixelIdx);
+                                    localVisited[localIdx] = 1;
+                                }
+                                else { EdgedImg[PixelIdx] = 0; }
                             }
                         }
                     }
-                    EdgedImg[x + y * Width] = EdgePresent ? 255 : 0;
+                }
+
+                for (size_t i = 0; i < localEdgeQueue.size(); ++i)
+                {
+                    int PixelIdx = localEdgeQueue[i];
+
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        for (int dy = -1; dy <= 1; dy++)
+                        {
+                            int newX        = (PixelIdx % Width) + dx;
+                            int newY        = (PixelIdx / Width) + dy;
+                            int newPixelIdx = newX + newY * Width;
+                            int localNewIdx = newX + (newY - startY + 1) * Width;
+
+                            if (newX >= 0 && newX < Width && newY >= startY - 1 && newY < endY + 1 &&
+                                !localVisited[localNewIdx] && InitialEdges[newPixelIdx] == 100)
+                            {
+                                localEdgeQueue.push_back(newPixelIdx);
+                                localVisited[localNewIdx] = 1;
+                                EdgedImg[newPixelIdx]     = 255;
+                            }
+                        }
+                    }
                 }
             }
-        }
-    };
-
-    std::vector<std::future<void>> futures;
-
-    for (int i = 0; i < ThreadNum; i++)
-    {
-        int startY = 1 + i * RowPerThread;
-        int endY   = (i == ThreadNum - 1) ? Height - 1 : startY + RowPerThread;
-        futures.emplace_back(Pool.EnQueue(ThreadFunc, EdgedImg, InitialEdges, Width, startY, endY));
+        }));
     }
 
-    for (auto& future : futures) future.get();
+    for (auto& future : Futures) { future.get(); }
 
     Pool.Sync();
 }

@@ -3,6 +3,8 @@
 #include <iostream>
 #include "ParmsDef.h"
 #include "Serial.h"
+#include <queue>
+#include <vector>
 
 Serial::Serial() {}
 Serial::~Serial() {}
@@ -155,20 +157,51 @@ void Serial::PerformDoubleThresholding(
 void Serial::PerformEdgeHysteresis(uint8_t* EdgedImg, uint8_t* InitialEdges, int Width, int Height)
 {
     memcpy(EdgedImg, InitialEdges, Width * Height * sizeof(uint8_t));
+    std::vector<bool> Visited(Width * Height, false);
+    std::queue<int>   EdgeQueue;
     for (int x = 1; x < Width - 1; x++)
     {
         for (int y = 1; y < Height - 1; y++)
         {
-            int PixelIdx = x + (y * Width);
-            if (InitialEdges[PixelIdx] == 100)
+            int PixelIdx = x + y * Width;
+            if (InitialEdges[PixelIdx] == 100 && !Visited[PixelIdx])
             {
-                if (InitialEdges[PixelIdx - 1] == 255 || InitialEdges[PixelIdx + 1] == 255 ||
-                    InitialEdges[PixelIdx - Width] == 255 || InitialEdges[PixelIdx + Width] == 255 ||
-                    InitialEdges[PixelIdx - Width - 1] == 255 || InitialEdges[PixelIdx - Width + 1] == 255 ||
-                    InitialEdges[PixelIdx + Width - 1] == 255 || InitialEdges[PixelIdx + Width + 1] == 255)
-                    EdgedImg[PixelIdx] = 255;
+                bool hasStrongNeighbor =
+                    (InitialEdges[PixelIdx - 1] == 255 || InitialEdges[PixelIdx + 1] == 255 ||
+                        InitialEdges[PixelIdx - Width] == 255 || InitialEdges[PixelIdx + Width] == 255 ||
+                        InitialEdges[PixelIdx - Width - 1] == 255 || InitialEdges[PixelIdx - Width + 1] == 255 ||
+                        InitialEdges[PixelIdx + Width - 1] == 255 || InitialEdges[PixelIdx + Width + 1] == 255);
+                if (hasStrongNeighbor)
+                {
+                    EdgeQueue.push(PixelIdx);
+                    Visited[PixelIdx] = true;
+                }
                 else
                     EdgedImg[PixelIdx] = 0;
+            }
+
+            while (!EdgeQueue.empty())
+            {
+                int PixelIdx = EdgeQueue.front();
+                EdgeQueue.pop();
+
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    for (int dy = -1; dy <= 1; dy++)
+                    {
+                        int newX        = (PixelIdx % Width) + dx;
+                        int newY        = (PixelIdx / Width) + dy;
+                        int newPixelIdx = newX + newY * Width;
+
+                        if (newX >= 0 && newX < Width && newY >= 0 && newY < Height && !Visited[newPixelIdx] &&
+                            InitialEdges[newPixelIdx] == 100)
+                        {
+                            EdgeQueue.push(newPixelIdx);
+                            Visited[newPixelIdx]  = true;
+                            EdgedImg[newPixelIdx] = 255;
+                        }
+                    }
+                }
             }
         }
     }

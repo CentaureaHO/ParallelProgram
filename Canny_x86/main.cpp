@@ -95,7 +95,8 @@ int main()
             Gauss = &OneAPI_Ins;
             Grad  = &OneAPI_Ins;
             Redu  = &OneAPI_Ins;
-            DouTh = &OneAPI_Ins;;
+            DouTh = &OneAPI_Ins;
+            ;
             Edged = &OneAPI_Ins;
             break;
         default: std::cerr << "Invalid choice.\n"; return 1;
@@ -137,6 +138,11 @@ int main()
             cv::resize(GreyImg, GreyImg, cv::Size(TmpWidth, TmpHeight));
             EdgedImg.create(GreyImg.size(), CV_8UC1);
 
+            cv::Mat GaussianImg(GreyImg.size(), CV_8UC1);
+            cv::Mat GradientImg(GreyImg.size(), CV_8UC1);
+            cv::Mat MatrixImg(GreyImg.size(), CV_8UC1);
+            cv::Mat DoubleThreImg(GreyImg.size(), CV_8UC1);
+
             uint8_t* GreyImageArray     = (uint8_t*)_mm_malloc(TmpWidth * TmpHeight * sizeof(uint8_t), 64);
             uint8_t* GaussianImageArray = (uint8_t*)_mm_malloc(TmpWidth * TmpHeight * sizeof(uint8_t), 64);
             float*   GradientPixels     = (float*)_mm_malloc(TmpWidth * TmpHeight * sizeof(float), 64);
@@ -150,6 +156,8 @@ int main()
             for (int i = 0; i < 1; ++i)
             {
                 OMP_Ins.PerformGaussianBlur(GaussianImageArray, GreyImageArray, GreyImg.cols, GreyImg.rows);
+                cv::Mat GaussianImg(GreyImg.size(), CV_8UC1, GaussianImageArray);
+                cv::imwrite(OutputPath + "Gaussian_" + Entry.path().filename().string(), GaussianImg);
             }
 
             ns TotalGaussianTime        = ns(0);
@@ -166,15 +174,38 @@ int main()
                 auto end = hrClk::now();
                 TotalGaussianTime += std::chrono::duration_cast<ns>(end - start);
 
+                cv::Mat GaussianImg(GreyImg.size(), CV_8UC1, GaussianImageArray);
+                cv::imwrite(OutputPath + "Gaussian_" + Entry.path().filename().string(), GaussianImg);
+
                 start = hrClk::now();
                 Grad->ComputeGradients(GradientPixels, SegmentPixels, GaussianImageArray, GreyImg.cols, GreyImg.rows);
                 end = hrClk::now();
                 TotalGradientTime += std::chrono::duration_cast<ns>(end - start);
 
+                for (int y = 0; y < GreyImg.rows; ++y)
+                {
+                    for (int x = 0; x < GreyImg.cols; ++x)
+                    {
+                        GradientImg.at<uchar>(y, x) = static_cast<uchar>(GradientPixels[y * GreyImg.cols + x]);
+                    }
+                }
+
+                cv::imwrite(OutputPath + "Gradient_" + Entry.path().filename().string(), GradientImg);
+
                 start = hrClk::now();
                 Redu->ReduceNonMaximum(MatrixPixels, GradientPixels, SegmentPixels, GreyImg.cols, GreyImg.rows);
                 end = hrClk::now();
                 TotalReduceTime += std::chrono::duration_cast<ns>(end - start);
+
+                for (int y = 0; y < GreyImg.rows; ++y)
+                {
+                    for (int x = 0; x < GreyImg.cols; ++x)
+                    {
+                        MatrixImg.at<uchar>(y, x) = static_cast<uchar>(MatrixPixels[y * GreyImg.cols + x]);
+                    }
+                }
+
+                cv::imwrite(OutputPath + "Matrix_" + Entry.path().filename().string(), MatrixImg);
 
                 start = hrClk::now();
                 DouTh->PerformDoubleThresholding(
@@ -182,10 +213,23 @@ int main()
                 end = hrClk::now();
                 TotalDoubleThresholdTime += std::chrono::duration_cast<ns>(end - start);
 
+                for (int y = 0; y < GreyImg.rows; ++y)
+                {
+                    for (int x = 0; x < GreyImg.cols; ++x)
+                    {
+                        DoubleThreImg.at<uchar>(y, x) = static_cast<uchar>(DoubleThrePixels[y * GreyImg.cols + x]);
+                    }
+                }
+
+                cv::imwrite(OutputPath + "DoubleThre_" + Entry.path().filename().string(), DoubleThreImg);
+
                 start = hrClk::now();
                 Edged->PerformEdgeHysteresis(EdgeArray, DoubleThrePixels, GreyImg.cols, GreyImg.rows);
                 end = hrClk::now();
                 TotalEdgeHysteresisTime += std::chrono::duration_cast<ns>(end - start);
+
+                cv::Mat EdgedImg(GreyImg.size(), CV_8UC1, EdgeArray);
+                cv::imwrite(OutputPath + "Edged_" + Entry.path().filename().string(), EdgedImg);
             }
             memcpy(EdgedImg.data, EdgeArray, TmpWidth * TmpHeight * sizeof(uint8_t));
             _mm_free(GreyImageArray);
