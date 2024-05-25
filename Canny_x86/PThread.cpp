@@ -592,7 +592,7 @@ void PThreadWithPool::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg
                     int ny = y + j;
                     if (ny >= 0 && ny < Height)
                     {
-                        __m512 ImgPixel  = _mm512_load_ps(Temp + ny * PaddedWidth + x);
+                        __m512 ImgPixel  = _mm512_loadu_ps(Temp + ny * PaddedWidth + x);
                         __m512 KernelVal = _mm512_set1_ps(GaussianKernel_1D[KernelRadius + j]);
                         PixelVal         = _mm512_add_ps(PixelVal, _mm512_mul_ps(ImgPixel, KernelVal));
                         KernelSum        = _mm512_add_ps(KernelSum, KernelVal);
@@ -663,12 +663,12 @@ void PThreadWithPool::PerformGaussianBlur(uint8_t* Output, const uint8_t* OriImg
         __m512 two_five_five = _mm512_set1_ps(255.0f);
         for (int i = start; i <= end - 16; i += 16)
         {
-            __m512 Pixels      = _mm512_load_ps(Temp + i);
+            __m512 Pixels      = _mm512_loadu_ps(Temp + i);
             Pixels             = _mm512_max_ps(zero, _mm512_min_ps(Pixels, two_five_five));
             __m512i Pixels_i32 = _mm512_cvtps_epi32(Pixels);
             __m256i Pixels_i16 = _mm512_cvtepi32_epi16(Pixels_i32);
             __m128i Pixels_i8  = _mm256_cvtepi16_epi8(Pixels_i16);
-            _mm_store_si128((__m128i*)(Output + i), Pixels_i8);
+            _mm_storeu_si128((__m128i*)(Output + i), Pixels_i8);
         }
         for (int i = end - (end % 16); i < end; i++)
             Output[i] = static_cast<uint8_t>(std::min(std::max(0.0f, Temp[i]), 255.0f));
@@ -720,9 +720,12 @@ void PThreadWithPool::ComputeGradients(
                     for (int kx = -Offset; kx <= Offset; kx++)
                     {
                         int KernelIdx = (ky + Offset) * 3 + (kx + Offset);
-                        int PixelIdx  = x + kx + (y + ky) * Width;
-                        GradX += BlurredImage[PixelIdx] * Gx[KernelIdx];
-                        GradY += BlurredImage[PixelIdx] * Gy[KernelIdx];
+                        if (x + kx >= 0 && x + kx < Width && y + ky >= 0 && y + ky < Height)
+                        {
+                            int PixelIdx = x + kx + (y + ky) * Width;
+                            GradX += BlurredImage[PixelIdx] * Gx[KernelIdx];
+                            GradY += BlurredImage[PixelIdx] * Gy[KernelIdx];
+                        }
                     }
                 }
                 Gradients[x + y * Width] = std::sqrt(GradX * GradX + GradY * GradY);
@@ -751,7 +754,7 @@ void PThreadWithPool::ComputeGradients(
                         int KernelIdx = (ky + Offset) * 3 + (kx + Offset);
                         int PixelIdx  = x + (y * Width) + kx + (ky * Width);
 
-                        if (x + 15 < Width)
+                        if (x + 15 < Width && (x + kx >= 0 && x + kx < Width && y + ky >= 0 && y + ky < Height))
                         {
                             __m512i PixelValues =
                                 _mm512_cvtepu8_epi32(_mm_loadu_si128((const __m128i*)(BlurredImage + PixelIdx)));

@@ -19,7 +19,7 @@ using Vec = std::vector<T>;
 int main()
 {
     int n         = 1;
-    int UseThread = 16;
+    int MaxThread = 16;
     int Choice    = 0;
     std::cout << "Choose the method to run:\n"
               << "1. Serial\n"
@@ -33,8 +33,8 @@ int main()
     std::cout << "Repeat the process how many times? ";
     std::cin >> n;
 
-    std::cout << "How many threads to use? ";
-    std::cin >> UseThread;
+    std::cout << "How many threads to test? ";
+    std::cin >> MaxThread;
 
     Str       ImgPath    = "../Images/";
     Str       OutputPath = "../Output/";
@@ -43,10 +43,10 @@ int main()
 
     Serial&          Serial_Ins   = Serial::GetInstance();
     SIMD::AVX::A512& SIMD_Ins     = SIMD::AVX::A512::GetInstance();
-    PThread&         PThread_Ins  = PThread::GetInstance(UseThread);
-    PThreadWithPool& PThreadP_Ins = PThreadWithPool::GetInstance(UseThread);
-    OpenMP&          OMP_Ins      = OpenMP::GetInstance(UseThread);
-    OneAPI&          OneAPI_Ins   = OneAPI::GetInstance(UseThread);
+    PThread&         PThread_Ins  = PThread::GetInstance(MaxThread);
+    PThreadWithPool& PThreadP_Ins = PThreadWithPool::GetInstance(MaxThread);
+    OpenMP&          OMP_Ins      = OpenMP::GetInstance(MaxThread);
+    OneAPI&          OneAPI_Ins   = OneAPI::GetInstance(MaxThread);
 
     Canny* Gauss = nullptr;
     Canny* Grad  = nullptr;
@@ -107,10 +107,10 @@ int main()
     {
         case 1: filename = "Serial"; break;
         case 2: filename = "SIMD"; break;
-        case 3: filename = "PThread_" + std::to_string(UseThread); break;
-        case 4: filename = "PThreadPool_" + std::to_string(UseThread); break;
-        case 5: filename = "OpenMP_" + std::to_string(UseThread); break;
-        case 6: filename = "OneAPI_" + std::to_string(UseThread); break;
+        case 3: filename = "PThread_" + std::to_string(MaxThread); break;
+        case 4: filename = "PThreadPool_" + std::to_string(MaxThread); break;
+        case 5: filename = "OpenMP_" + std::to_string(MaxThread); break;
+        case 6: filename = "OneAPI_" + std::to_string(MaxThread); break;
     }
 
     filename = filename + ".csv";
@@ -271,6 +271,6 @@ int main()
                 << avgTotalProcessingTime.count() << "\n";
         }
     }
-    std::cout << "Thread " << UseThread << " done.\n\n";
+    std::cout << "Thread " << MaxThread << " done.\n\n";
     CSV.close();
 }
