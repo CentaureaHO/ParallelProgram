@@ -73,7 +73,7 @@ int main(int argc, char** argv)
     MPI_Comm_size(MPI_COMM_WORLD, &Size);
 
     int NumWorkers = Size - 1;
-    int DataSize   = 10000000 * Size;
+    int DataSize   = 100000000 * Size;
 
     if (Rank == 0)
         Server(NumWorkers, DataSize);

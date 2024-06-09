@@ -56,7 +56,7 @@ int main(int argc, char** argv)
     MPI_Comm_size(MPI_COMM_WORLD, &Size);
 
     int Nodes       = Size;
-    int NumsPerNode = 10000000;
+    int NumsPerNode = 100000000;
     int TotalSize   = NumsPerNode * Nodes;
 
     vector<int> GlobalData;
