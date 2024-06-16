@@ -720,6 +720,21 @@ int main(int argc, char* argv[])
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
+    // Determine the number of pipelines possible
+    int pipelines = size / 4;
+    if (size < 4)
+    {
+        MPI_Abort(MPI_COMM_WORLD, 1);
+        return 1;
+    }
+    int      pipeline_id = rank / 4;
+    MPI_Comm pipeline_comm;
+    MPI_Comm_split(MPI_COMM_WORLD, pipeline_id, rank, &pipeline_comm);
+
+    int pipeline_rank, pipeline_size;
+    MPI_Comm_rank(pipeline_comm, &pipeline_rank);
+    MPI_Comm_size(pipeline_comm, &pipeline_size);
+
     const string         ImgPath = "../Images/";
     const string         OutPath = "../Output/";
     const vector<string> Images  = {"bakery.jpg",
@@ -738,145 +753,120 @@ int main(int argc, char* argv[])
          "mountain.jpg",
          "platinum.jpg",
          "street.jpg"};
-    vector<double>       processingTimes;
-    vector<double>       communicationTimes;
 
-    for (const auto& Image : Images)
+
+    int img_index = pipeline_id;
+
+    while (img_index < Images.size())
     {
-        string  ImgName = ImgPath + Image;
-        string  OutName = OutPath + "Sobel_" + Image;
-        cv::Mat OriImg;
+        string  ImgName = ImgPath + Images[img_index];
+        string  OutName = OutPath + "Sobel_MPI_" + Images[img_index];
+        cv::Mat Img, GreyImg, EdgedImg;
+        cout << "Processing image: " << ImgName << endl;
+        int OriginalWidth, OriginalHeight, TmpWidth, TmpHeight;
 
-        if (rank == 0)
+        cout << "Rank " << rank << " reachead ckpt 1\n";
+        if (pipeline_rank == 0)
         {
-            OriImg = cv::imread(ImgName, cv::IMREAD_COLOR);
-            if (OriImg.empty())
+            // Node nk reads the image
+            Img = cv::imread(ImgName, cv::IMREAD_COLOR);
+            if (Img.empty())
             {
                 cerr << "Error loading image: " << ImgName << endl;
                 MPI_Abort(MPI_COMM_WORLD, 1);
             }
-        }
 
-        int OriginalWidth, OriginalHeight, TmpWidth, TmpHeight;
-        if (rank == 0)
-        {
-            OriginalWidth  = OriImg.cols;
-            OriginalHeight = OriImg.rows;
-            TmpWidth       = OriImg.cols < 16 ? 16 : OriImg.cols / 16 * 16;
-            TmpHeight      = OriImg.rows < 16 ? 16 : OriImg.rows / 16 * 16;
-        }
+            OriginalWidth  = Img.cols;
+            OriginalHeight = Img.rows;
+            TmpWidth       = Img.cols < 16 ? 16 : Img.cols / 16 * 16;
+            TmpHeight      = Img.rows < 16 ? 16 : Img.rows / 16 * 16;
 
-        double CommStart = MPI_Wtime();
-        MPI_Bcast(&OriginalWidth, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&OriginalHeight, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&TmpWidth, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&TmpHeight, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        double CommEnd  = MPI_Wtime();
-        double CommTime = CommEnd - CommStart;
-
-        cv::Mat GreyImg, EdgedImg;
-        if (rank == 0)
-        {
-            cv::cvtColor(OriImg, GreyImg, cv::COLOR_BGR2GRAY);
+            cout << "Rank " << rank << " reachead ckpt 2\n";
+            cv::cvtColor(Img, GreyImg, cv::COLOR_BGR2GRAY);
             cv::resize(GreyImg, GreyImg, cv::Size(TmpWidth, TmpHeight));
+
+            // Broadcast the sizes to the next nodes in the pipeline
+            MPI_Send(&OriginalWidth, 1, MPI_INT, rank + 1, 0, MPI_COMM_WORLD);
+            MPI_Send(&OriginalHeight, 1, MPI_INT, rank + 1, 0, MPI_COMM_WORLD);
+            MPI_Send(&TmpWidth, 1, MPI_INT, rank + 1, 0, MPI_COMM_WORLD);
+            MPI_Send(&TmpHeight, 1, MPI_INT, rank + 1, 0, MPI_COMM_WORLD);
+            MPI_Send(GreyImg.data, TmpWidth * TmpHeight, MPI_UINT8_T, rank + 1, 0, MPI_COMM_WORLD);
+            cout << "Rank " << rank << " reachead ckpt 3\n";
         }
-        else { GreyImg.create(TmpHeight, TmpWidth, CV_8UC1); }
+        else
+        {
+            cout << "Rank " << rank << " reachead ckpt 2\n";
+            // Other nodes receive the dimensions and allocate memory
+            MPI_Recv(&OriginalWidth, 1, MPI_INT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(&OriginalHeight, 1, MPI_INT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(&TmpWidth, 1, MPI_INT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(&TmpHeight, 1, MPI_INT, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            GreyImg.create(TmpHeight, TmpWidth, CV_8UC1);
+            MPI_Recv(GreyImg.data, TmpWidth * TmpHeight, MPI_UINT8_T, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            cout << "Rank " << rank << " reachead ckpt 3\n";
+        }
+        MPI_Barrier(pipeline_comm);
 
-        CommStart = MPI_Wtime();
-        MPI_Bcast(GreyImg.data, TmpWidth * TmpHeight, MPI_UINT8_T, 0, MPI_COMM_WORLD);
-        CommEnd = MPI_Wtime();
-
-        CommTime += CommEnd - CommStart;
-        EdgedImg.create(GreyImg.size(), CV_8UC1);
-
-        uint8_t* GreyImageArray     = (uint8_t*)_mm_malloc(TmpWidth * TmpHeight * sizeof(uint8_t), 64);
+        // Define buffer for each processing step
         uint8_t* GaussianImageArray = (uint8_t*)_mm_malloc(TmpWidth * TmpHeight * sizeof(uint8_t), 64);
         float*   GradientPixels     = (float*)_mm_malloc(TmpWidth * TmpHeight * sizeof(float), 64);
         float*   MatrixPixels       = (float*)_mm_malloc(TmpWidth * TmpHeight * sizeof(float), 64);
         uint8_t* SegmentPixels      = (uint8_t*)_mm_malloc(TmpWidth * TmpHeight * sizeof(uint8_t), 64);
         uint8_t* DoubleThrePixels   = (uint8_t*)_mm_malloc(TmpWidth * TmpHeight * sizeof(uint8_t), 64);
         uint8_t* EdgeArray          = (uint8_t*)_mm_malloc(TmpWidth * TmpHeight * sizeof(uint8_t), 64);
-        memcpy(GreyImageArray, GreyImg.data, TmpWidth * TmpHeight * sizeof(uint8_t));
 
-        vector<int> sendcounts(size), displs(size);
-        int         totalElements = TmpWidth * TmpHeight;
-        for (int i = 0; i < size; i++)
+        // Processing according to the position in the pipeline
+        if (pipeline_rank == 0)
         {
-            sendcounts[i] = totalElements / size + (i < totalElements % size);
-            displs[i]     = (i > 0 ? displs[i - 1] + sendcounts[i - 1] : 0);
+            // Gaussian blur
+            PerformGaussianBlur(GaussianImageArray, GreyImg.data, TmpWidth, TmpHeight);
+            MPI_Send(GaussianImageArray, TmpWidth * TmpHeight, MPI_UINT8_T, rank + 1, 0, MPI_COMM_WORLD);
         }
-
-        int startRow = rank * TmpHeight / size;
-        int endRow   = (rank + 1) * TmpHeight / size;
-
-        int paddedStartRow = max(0, startRow - 1);
-        int paddedEndRow   = min(TmpHeight, endRow + 1);
-
-        double StartTime = MPI_Wtime();
-
-        PerformGaussianBlur(GaussianImageArray + paddedStartRow * TmpWidth,
-            GreyImageArray + paddedStartRow * TmpWidth,
-            TmpWidth,
-            paddedEndRow - paddedStartRow);
-
-        ComputeGradients(GradientPixels + paddedStartRow * TmpWidth,
-            SegmentPixels + paddedStartRow * TmpWidth,
-            GaussianImageArray + paddedStartRow * TmpWidth,
-            TmpWidth,
-            paddedEndRow - paddedStartRow);
-
-        ReduceNonMaximum(MatrixPixels, GradientPixels, SegmentPixels, TmpWidth, TmpHeight);
-        PerformDoubleThresholding(DoubleThrePixels, MatrixPixels, 90, 30, TmpWidth, TmpHeight);
-        PerformEdgeHysteresis(EdgeArray, DoubleThrePixels, TmpWidth, TmpHeight);
-
-        CommStart = MPI_Wtime();
-        MPI_Gatherv(EdgeArray + displs[rank],
-            sendcounts[rank],
-            MPI_UINT8_T,
-            EdgeArray,
-            sendcounts.data(),
-            displs.data(),
-            MPI_UINT8_T,
-            0,
-            MPI_COMM_WORLD);
-        CommEnd = MPI_Wtime();
-
-        CommTime += CommEnd - CommStart;
-        double EndTime = MPI_Wtime();
-
-        if (rank == 0)
+        else if (pipeline_rank == 1)
         {
-            memcpy(EdgedImg.data, EdgeArray, TmpWidth * TmpHeight * sizeof(uint8_t));
+            // Gradient computation
+            MPI_Recv(
+                GaussianImageArray, TmpWidth * TmpHeight, MPI_UINT8_T, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            ComputeGradients(GradientPixels, SegmentPixels, GaussianImageArray, TmpWidth, TmpHeight);
+            MPI_Send(GradientPixels, TmpWidth * TmpHeight * sizeof(float), MPI_FLOAT, rank + 1, 0, MPI_COMM_WORLD);
+            MPI_Send(SegmentPixels, TmpWidth * TmpHeight, MPI_UINT8_T, rank + 1, 0, MPI_COMM_WORLD);
+        }
+        else if (pipeline_rank == 2)
+        {
+            // Non-maximum suppression and double thresholding
+            MPI_Recv(GradientPixels,
+                TmpWidth * TmpHeight * sizeof(float),
+                MPI_FLOAT,
+                rank - 1,
+                0,
+                MPI_COMM_WORLD,
+                MPI_STATUS_IGNORE);
+            MPI_Recv(SegmentPixels, TmpWidth * TmpHeight, MPI_UINT8_T, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            ReduceNonMaximum(MatrixPixels, GradientPixels, SegmentPixels, TmpWidth, TmpHeight);
+            PerformDoubleThresholding(DoubleThrePixels, MatrixPixels, 90, 30, TmpWidth, TmpHeight);
+            MPI_Send(DoubleThrePixels, TmpWidth * TmpHeight, MPI_UINT8_T, rank + 1, 0, MPI_COMM_WORLD);
+        }
+        else if (pipeline_rank == 3)
+        {
+            MPI_Recv(
+                DoubleThrePixels, TmpWidth * TmpHeight, MPI_UINT8_T, rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            PerformEdgeHysteresis(EdgeArray, DoubleThrePixels, TmpWidth, TmpHeight);
+            EdgedImg.create(OriginalHeight, OriginalWidth, CV_8UC1);
             cv::resize(EdgedImg, EdgedImg, cv::Size(OriginalWidth, OriginalHeight));
             cv::imwrite(OutName, EdgedImg);
-
-            double ProcessingTime = EndTime - StartTime;
-            processingTimes.push_back(ProcessingTime);
-            communicationTimes.push_back(CommTime);
         }
 
-        _mm_free(GreyImageArray);
         _mm_free(GaussianImageArray);
         _mm_free(GradientPixels);
-        _mm_free(SegmentPixels);
         _mm_free(MatrixPixels);
+        _mm_free(SegmentPixels);
         _mm_free(DoubleThrePixels);
         _mm_free(EdgeArray);
+
+        img_index += pipelines;
     }
 
-    if (rank == 0)
-    {
-        ofstream csvFile("../CannyRecord/runtime/MPI_Server_" + to_string(size) + ".csv");
-        csvFile << "Image,ProcessingTime(s)" << endl;
-        double TotalTime = 0;
-        for (size_t i = 0; i < Images.size(); ++i)
-        {
-            csvFile << Images[i] << "," << processingTimes[i] << endl;
-            TotalTime += communicationTimes[i];
-        }
-        cout << "Elapsed: " << TotalTime;
-        csvFile.close();
-    }
-
+    MPI_Comm_free(&pipeline_comm);
     MPI_Finalize();
+    return 0;
 }
