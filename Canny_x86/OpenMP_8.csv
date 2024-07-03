@@ -1,0 +1,3 @@
+Image Name,Width x Height,Gaussian Time (ns),Gradient Time (ns),Reduce Time (ns),Double Threshold Time (ns),Edge Hysteresis Time (ns),Total Processing Time (ns)
+bakery.jpg,3984x2880,262624036,817199379,198507681,86794703,110010132,1475135931
+bakery.jpg,3984x2880,16398157,31233469,25346224,2375745,19337004,94690599

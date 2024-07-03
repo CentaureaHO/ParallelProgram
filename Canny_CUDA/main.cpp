@@ -46,7 +46,7 @@ int main()
     CSV << "Image Name,Width x Height,Total Processing Time (ns)\n";
     for (const auto& Entry : fs::directory_iterator(ImgPath))
     {
-        if (Entry.path().extension() == ".jpg")
+        if (Entry.path().extension() == ".jpg" && Entry.path().filename().string() == "bakery.jpg")
         {
             cv::Mat OriImg = cv::imread(Entry.path().string(), cv::IMREAD_COLOR);
             if (OriImg.empty())

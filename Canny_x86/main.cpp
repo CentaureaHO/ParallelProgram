@@ -51,7 +51,7 @@ void Excute(Canny* Op, uint8_t* GreyImageArray, uint8_t* GaussianImageArray, flo
     TotalEdgeHysteresisTime += std::chrono::duration_cast<ns>(end - start);
 }
 
-void PerformCanny(cv::Mat& EdgedImg, const cv::Mat& GreyImg, Canny* Op, std::ofstream& CSV, Str Filename,
+cv::Mat PerformCanny(cv::Mat EdgedImg, const cv::Mat& GreyImg, Canny* Op, std::ofstream& CSV, Str Filename,
     unsigned int RepeatTimes = 1)
 {
     std::string baseFilename   = Filename.substr(0, Filename.find_last_of("."));
@@ -175,6 +175,7 @@ void PerformCanny(cv::Mat& EdgedImg, const cv::Mat& GreyImg, Canny* Op, std::ofs
     CSV << Filename << "," << ResizedGreyImg.cols << "x" << ResizedGreyImg.rows << "," << avgGaussianTime.count() << ","
         << avgGradientTime.count() << "," << avgReductionTime.count() << "," << avgDoubleThresholdTime.count() << ","
         << avgEdgeHysteresisTime.count() << "," << avgTotalProcessingTime.count() << "\n";
+    return EdgedImg;
 }
 
 int main()
@@ -235,7 +236,7 @@ int main()
            "(ns),Edge Hysteresis Time (ns),Total Processing Time (ns)\n";
     for (const auto& Entry : fs::directory_iterator(ImgPath))
     {
-        if (Entry.path().extension() == ".jpg")
+        if (Entry.path().extension() == ".jpg" && Entry.path().filename().string() == "bakery.jpg")
         {
             cv::Mat OriImg = cv::imread(Entry.path().string(), cv::IMREAD_COLOR);
             if (OriImg.empty())
@@ -246,7 +247,22 @@ int main()
 
             cv::Mat GreyImg, EdgedImg;
             cv::cvtColor(OriImg, GreyImg, cv::COLOR_BGR2GRAY);
-            PerformCanny(EdgedImg, GreyImg, Op, CSV, Entry.path().filename().string(), n);
+
+            cv::Mat Serial = PerformCanny(EdgedImg, GreyImg, (Canny*)&Serial_Ins, CSV, Entry.path().filename().string(), n);
+            // cv::Mat Target = PerformCanny(EdgedImg, GreyImg, Op, CSV, Entry.path().filename().string(), n);
+            /*
+            int ErrEdge = 0, ErrNoEdge = 0;
+
+            for (int y = 0; y < Serial.rows; ++y)
+            {
+                for (int x = 0; x < Serial.cols; ++x)
+                {
+                    if (Serial.at<uchar>(y, x) > Target.at<uchar>(y, x)) ErrNoEdge++;
+                    else if (Serial.at<uchar>(y, x) < Target.at<uchar>(y, x)) ErrEdge++;
+                }
+            }
+            std::cout << ErrNoEdge << " " << ErrEdge << "\n";
+            */
         }
     }
     std::cout << "Thread " << MaxThread << " done.\n\n";
